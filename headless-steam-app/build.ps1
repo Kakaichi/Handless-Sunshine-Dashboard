@@ -9,6 +9,7 @@ $resources = Join-Path $here "resources"
 function Stop-HeadlessSteamBuildBlockers {
     $stopped = $false
     foreach ($name in @("web-server", "HandlessSteam", "HeadlessSteam")) {
+        cmd /c "taskkill /F /IM $($name).exe /T 2>nul" | Out-Null
         foreach ($proc in @(Get-Process -Name $name -ErrorAction SilentlyContinue)) {
             Write-Host "Encerrando $name (PID $($proc.Id)) para liberar arquivos do build..."
             Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
@@ -16,33 +17,57 @@ function Stop-HeadlessSteamBuildBlockers {
         }
     }
     if ($stopped) {
-        Start-Sleep -Milliseconds 750
+        Start-Sleep -Milliseconds 1200
+    }
+}
+
+function Invoke-NativeCommand {
+    param(
+        [Parameter(Mandatory = $true)][string]$FilePath,
+        [string[]]$ArgumentList = @()
+    )
+
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        & $FilePath @ArgumentList
+        if ($LASTEXITCODE -ne 0) {
+            throw "Comando falhou (codigo $LASTEXITCODE): $FilePath $($ArgumentList -join ' ')"
+        }
+    } finally {
+        $ErrorActionPreference = $prev
     }
 }
 
 function Remove-DirectoryForce {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
-        [int]$Retries = 5
+        [int]$Retries = 5,
+        [switch]$ThrowOnFailure
     )
 
     if (-not (Test-Path $Path)) {
-        return
+        return $true
     }
 
     for ($attempt = 1; $attempt -le $Retries; $attempt++) {
         try {
             Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction Stop
-            return
+            return $true
         } catch {
             if ($attempt -eq $Retries) {
-                throw
+                if ($ThrowOnFailure) {
+                    throw
+                }
+                return $false
             }
             Write-Host "Nao foi possivel remover '$Path' (tentativa $attempt/$Retries). Liberando arquivos..."
             Stop-HeadlessSteamBuildBlockers
-            Start-Sleep -Milliseconds 750
+            Start-Sleep -Milliseconds 1200
         }
     }
+
+    return $false
 }
 
 if (-not (Test-Path $resources)) {
@@ -63,12 +88,29 @@ Copy-Item -LiteralPath $faviconResources -Destination $faviconSunshine -Force
 Push-Location $here
 try {
     Stop-HeadlessSteamBuildBlockers
-    if (Test-Path $distDir) {
-        Remove-DirectoryForce -Path $distDir
+
+    $useAltDist = $false
+    $distName = "HandlessSteam"
+    $distDir = Join-Path $here "dist\$distName"
+    if (Test-Path -LiteralPath $distDir) {
+        if (-not (Remove-DirectoryForce -Path $distDir)) {
+            $useAltDist = $true
+            Write-Host "AVISO: dist/HandlessSteam em uso. Gerando em dist-build/HandlessSteam ..."
+        }
     }
 
-    python -m pip install -r requirements.txt pyinstaller
-    pyinstaller --noconfirm HandlessSteam.spec
+    Invoke-NativeCommand -FilePath "python" -ArgumentList @("-m", "pip", "install", "-r", "requirements.txt", "pyinstaller")
+    if ($useAltDist) {
+        $distParent = Join-Path $here "dist-build"
+        $distDir = Join-Path $distParent $distName
+        if (Test-Path -LiteralPath $distDir) {
+            Remove-DirectoryForce -Path $distDir -ThrowOnFailure
+        }
+        Invoke-NativeCommand -FilePath "pyinstaller" -ArgumentList @("--noconfirm", "--distpath", $distParent, "HandlessSteam.spec")
+    } else {
+        Invoke-NativeCommand -FilePath "pyinstaller" -ArgumentList @("--noconfirm", "HandlessSteam.spec")
+        $distDir = Join-Path $here "dist\$distName"
+    }
 
     if (-not (Test-Path $distDir)) {
         throw "Build nao gerou $distDir"
@@ -85,7 +127,7 @@ try {
     $moonlightDest = Join-Path $distDir "moonlight-web"
 
     if (Test-Path $sunshineDest) {
-        Remove-DirectoryForce -Path $sunshineDest
+        Remove-DirectoryForce -Path $sunshineDest -ThrowOnFailure
     }
     Copy-Item -Path (Join-Path $repoRoot "sunshine") -Destination $sunshineDest -Recurse -Force
 
@@ -119,7 +161,7 @@ try {
         if (Test-Path -LiteralPath $preserveConfig) {
             $backupConfig = Get-Content -LiteralPath $preserveConfig -Raw -Encoding UTF8
         }
-        Remove-DirectoryForce -Path $moonlightDest
+        Remove-DirectoryForce -Path $moonlightDest -ThrowOnFailure
     } else {
         $backupData = $null
         $backupConfig = $null
