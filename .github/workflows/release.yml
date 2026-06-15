@@ -69,7 +69,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.meta.outputs.tag }}
-          name: ${{ steps.meta.outputs.tag }}
+          name: Handless Sunshine Dashboard v${{ steps.meta.outputs.version }}
+          body_path: headless-steam-app/release-notes/v${{ steps.meta.outputs.version }}.md
           files: ${{ steps.package.outputs.zip_path }}
-          generate_release_notes: true
           fail_on_unmatched_files: true

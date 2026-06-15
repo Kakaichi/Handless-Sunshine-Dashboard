@@ -157,12 +157,21 @@ function Start-HeadlessSteamMoonlightWebServer {
 function Stop-HeadlessSteamMoonlightWebServer {
     Remove-HeadlessSteamMoonlightScheduledTask
 
+    $configPath = Join-Path $moonlightPkg "server\config.json"
+    if (Get-Command Repair-HeadlessSteamMoonlightStreamerPath -ErrorAction SilentlyContinue) {
+        Repair-HeadlessSteamMoonlightStreamerPath -ConfigPath $configPath
+    }
+
+    if (-not (Test-MoonlightWebProcessRunning) -and -not (Get-Process -Name "streamer" -ErrorAction SilentlyContinue)) {
+        return
+    }
+
     $stopped = $false
     if (Get-Command Stop-MoonlightWebProcesses -ErrorAction SilentlyContinue) {
         $stopped = Stop-MoonlightWebProcesses -WaitSeconds 6
     } else {
-        Stop-Process -Name $webServerProcess -Force -ErrorAction SilentlyContinue
-        Stop-Process -Name "streamer" -Force -ErrorAction SilentlyContinue
+        Stop-MoonlightWebProcessImage -ImageName "web-server.exe"
+        Stop-MoonlightWebProcessImage -ImageName "streamer.exe"
         Start-Sleep -Milliseconds 500
         $stopped = -not (Test-MoonlightWebProcessRunning)
     }
@@ -172,7 +181,7 @@ function Stop-HeadlessSteamMoonlightWebServer {
         if (Test-Path -LiteralPath $userSessionScript) {
             try {
                 . $userSessionScript
-                Start-UserSessionProcess -FilePath "cmd.exe" -ArgumentList "/c taskkill /F /IM web-server.exe /IM streamer.exe /T" -WorkingDirectory $env:SystemRoot | Out-Null
+                cmd /c "taskkill /F /IM web-server.exe /IM streamer.exe /T >nul 2>nul"
                 Start-Sleep -Seconds 2
                 $stopped = -not (Test-MoonlightWebProcessRunning)
             } catch {
@@ -180,7 +189,7 @@ function Stop-HeadlessSteamMoonlightWebServer {
         }
     }
 
-    if (-not $stopped) {
+    if (Test-MoonlightWebProcessRunning) {
         throw "Moonlight Web ainda esta em execucao apos tentativa de parar."
     }
 }

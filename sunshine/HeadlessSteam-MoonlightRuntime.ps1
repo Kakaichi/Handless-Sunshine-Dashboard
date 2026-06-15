@@ -5,22 +5,23 @@ function Test-MoonlightWebProcessRunning {
     return $null -ne (Get-Process -Name $script:HeadlessSteamWebServerProcess -ErrorAction SilentlyContinue)
 }
 
+function Stop-MoonlightWebProcessImage {
+    param([Parameter(Mandatory = $true)][string]$ImageName)
+
+    cmd /c "taskkill /F /IM $ImageName /T >nul 2>nul"
+}
+
 function Stop-MoonlightWebProcesses {
     param([int]$WaitSeconds = 5)
 
-    $imageNames = @(
-        "$($script:HeadlessSteamWebServerProcess).exe",
-        "streamer.exe"
-    )
-
-    foreach ($image in $imageNames) {
-        & taskkill.exe /F /IM $image /T 2>$null | Out-Null
+    foreach ($image in @("web-server.exe", "streamer.exe")) {
+        Stop-MoonlightWebProcessImage -ImageName $image
     }
 
     foreach ($name in @($script:HeadlessSteamWebServerProcess, "streamer")) {
         Get-Process -Name $name -ErrorAction SilentlyContinue | ForEach-Object {
             try {
-                Stop-Process -Id $_.Id -Force -ErrorAction Stop
+                Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
             } catch {
             }
         }
@@ -28,7 +29,7 @@ function Stop-MoonlightWebProcesses {
 
     $deadline = (Get-Date).AddSeconds([Math]::Max(1, $WaitSeconds))
     while ((Get-Date) -lt $deadline) {
-        if (-not (Test-MoonlightWebProcessRunning) -and -not (Test-MoonlightWebPortReady)) {
+        if (-not (Test-MoonlightWebProcessRunning)) {
             return $true
         }
         Start-Sleep -Milliseconds 300

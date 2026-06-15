@@ -48,7 +48,7 @@ from app.update_service import UpdateInfo, UpdateService, should_auto_check
 from app.widgets import ActionButton, IconToolButton, LinkButton, StatusCard, SurfaceCard
 
 ACTION_LABELS = {
-    "ligar_tudo": "Ligar todos os servicos",
+    "ligar_tudo": "Ligar Sunshine e Tailscale",
     "desligar_tudo": "Desligar todos os servicos",
     "alternar": "Alternar estado dos servicos",
     "change_password": "Mudar a senha",
@@ -109,7 +109,6 @@ _ACTION_STATUS_PATCHES: dict[str, dict[str, object]] = {
     "ligar_tudo": {
         "sunshine_running": True,
         "tailscale_running": True,
-        "moonlight_running": True,
     },
     "desligar_tudo": {
         "sunshine_running": False,

@@ -208,7 +208,7 @@ function Stop-MoonlightWeb {
         throw "ERRO ao parar Moonlight Web (codigo $LASTEXITCODE)."
     }
 
-    if (Test-MoonlightWebActive) {
+    if (Test-MoonlightWebProcessRunning) {
         throw "ERRO: Moonlight Web ainda esta em execucao."
     }
 

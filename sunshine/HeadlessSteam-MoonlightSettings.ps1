@@ -136,6 +136,32 @@ function Set-HeadlessSteamMoonlightSettings {
     }
 }
 
+function Repair-HeadlessSteamMoonlightStreamerPath {
+    param([Parameter(Mandatory = $true)][string]$ConfigPath)
+
+    if (-not (Test-Path -LiteralPath $ConfigPath)) {
+        return
+    }
+
+    Repair-HeadlessSteamMoonlightConfigFile -ConfigPath $ConfigPath
+
+    $configDir = Split-Path -Parent $ConfigPath
+    $packageDir = Split-Path -Parent $configDir
+    $streamerExe = Join-Path $packageDir "streamer.exe"
+    if (-not (Test-Path -LiteralPath $streamerExe)) {
+        return
+    }
+
+    $config = Get-Content -LiteralPath $ConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    $expected = "./streamer.exe"
+    if ([string]$config.streamer_path -ne $expected) {
+        $config.streamer_path = $expected
+        $config | ConvertTo-Json -Depth 20 | ForEach-Object {
+            Write-HeadlessSteamUtf8NoBom -Path $ConfigPath -Content $_
+        }
+    }
+}
+
 function Get-HeadlessSteamMoonlightConfigPath {
     param([string]$ScriptDir = $PSScriptRoot)
 

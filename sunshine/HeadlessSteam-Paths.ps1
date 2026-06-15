@@ -115,6 +115,15 @@ function Initialize-HeadlessSteamMoonlightRuntime {
         }
     }
 
+    $settingsScript = Join-Path $FromScriptDir "HeadlessSteam-MoonlightSettings.ps1"
+    if (-not (Test-Path -LiteralPath $settingsScript)) {
+        $settingsScript = Join-Path (Split-Path -Parent $FromScriptDir) "sunshine\HeadlessSteam-MoonlightSettings.ps1"
+    }
+    if (Test-Path -LiteralPath $settingsScript) {
+        . $settingsScript
+        Repair-HeadlessSteamMoonlightStreamerPath -ConfigPath $configPath
+    }
+
     return [pscustomobject]@{
         PackageDir   = $moonlightPkg
         ServerExe    = $serverExe
