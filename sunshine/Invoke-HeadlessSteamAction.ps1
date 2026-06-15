@@ -104,11 +104,47 @@ function Invoke-ExternalPowerShell {
 }
 
 function Start-TailscaleService {
-    net start $tailscaleService *> $null
-    Start-Sleep -Seconds 2
-    if (Test-Path $tailscaleExe) {
-        & $tailscaleExe up *> $null
+    $svc = Get-Service -Name $tailscaleService -ErrorAction SilentlyContinue
+    if (-not ($svc -and $svc.Status -eq "Running")) {
+        net start $tailscaleService *> $null
+        Start-Sleep -Seconds 2
     }
+
+    if (-not (Test-Path $tailscaleExe)) {
+        throw "Tailscale nao instalado."
+    }
+
+    $needsLogin = $false
+    $authUrl = ""
+    $statusResult = Invoke-HeadlessSteamTailscaleCommand -ArgumentList @("status", "--json") -TimeoutSeconds 8
+    if ($statusResult.Output) {
+        $status = ConvertFrom-HeadlessSteamTailscaleJson -Text $statusResult.Output
+        if ($status) {
+            $authUrl = [string]$status.AuthURL
+            if ($status.BackendState -match '(?i)NeedsLogin') {
+                $needsLogin = $true
+            }
+            foreach ($line in @($status.Health)) {
+                if ([string]$line -match '(?i)logged out|log in|login') {
+                    $needsLogin = $true
+                }
+            }
+        }
+    }
+
+    $up = Invoke-HeadlessSteamTailscaleCommand -ArgumentList @("up", "--timeout=30s") -TimeoutSeconds 35
+    if ($up.TimedOut) {
+        Write-ActionLog "AVISO: tailscale up expirou; verifique login na bandeja do Tailscale."
+    } elseif (-not $up.Success -and $up.Error) {
+        Write-ActionLog "AVISO: tailscale up: $($up.Error.Trim())"
+    }
+
+    if ($needsLogin) {
+        $loginUrl = if ($authUrl) { $authUrl } else { "https://login.tailscale.com/admin/machines" }
+        Write-ActionLog "TAILSCALE_LOGIN_REQUIRED:$loginUrl"
+        Write-ActionLog "AVISO: Tailscale sem perfil/login. Abra o app na bandeja e entre na conta. Nao desligue durante o login."
+    }
+
     $svc = Get-Service -Name $tailscaleService -ErrorAction SilentlyContinue
     if ($svc -and $svc.Status -eq "Running") {
         Write-ActionLog "Tailscale iniciado."
@@ -120,7 +156,10 @@ function Start-TailscaleService {
 function Stop-TailscaleService {
     Write-ActionLog "Desconectando VPN Tailscale..."
     if (Test-Path $tailscaleExe) {
-        & $tailscaleExe down *> $null
+        $down = Invoke-HeadlessSteamTailscaleCommand -ArgumentList @("down") -TimeoutSeconds 15
+        if ($down.TimedOut) {
+            Write-ActionLog "AVISO: tailscale down expirou; parando servico mesmo assim."
+        }
     }
     Write-ActionLog "Parando servico Tailscale..."
     net stop $tailscaleService *> $null
