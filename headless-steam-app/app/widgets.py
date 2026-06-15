@@ -25,10 +25,15 @@ def _transparent_label(text: str = "", object_name: str = "") -> QLabel:
 
 
 class NoWheelComboBox(QComboBox):
-    """Ignore scroll wheel unless the combo is focused (avoids accidental changes)."""
+    """Ignore scroll wheel unless the dropdown list is open."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
     def wheelEvent(self, event: QWheelEvent) -> None:  # noqa: N802
-        if self.hasFocus():
+        popup = self.view()
+        if popup is not None and popup.isVisible():
             super().wheelEvent(event)
         else:
             event.ignore()

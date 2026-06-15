@@ -45,7 +45,7 @@ from app.sunshine_panels import SunshinePage
 from app.sunshine_service import SunshineService
 from app.update_constants import GITHUB_RELEASES_PAGE
 from app.update_service import UpdateInfo, UpdateService, should_auto_check
-from app.widgets import ActionButton, IconToolButton, StatusCard, SurfaceCard
+from app.widgets import ActionButton, IconToolButton, LinkButton, StatusCard, SurfaceCard
 
 ACTION_LABELS = {
     "ligar_tudo": "Ligar todos os servicos",
@@ -232,7 +232,6 @@ class MainWindow(QMainWindow):
 
     def showEvent(self, event) -> None:  # noqa: N802
         super().showEvent(event)
-        self._status_service.refresh()
 
     def _load_initial_games_library(self) -> None:
         self._games_library.set_apps(load_apps_from_disk(), use_api=False)
@@ -268,13 +267,6 @@ class MainWindow(QMainWindow):
         )
         self._sync_btn.clicked.connect(lambda: self._run_action("atualizar_jogos"))
         toolbar.addWidget(self._sync_btn)
-
-        self._config_btn = IconToolButton(
-            load_icon("settings.svg"),
-            "Configuracoes Sunshine",
-        )
-        self._config_btn.clicked.connect(self._go_to_sunshine_account)
-        toolbar.addWidget(self._config_btn)
 
         self._user_btn = IconToolButton(
             load_icon("user.svg"),
@@ -453,6 +445,54 @@ class MainWindow(QMainWindow):
         row.addStretch()
         power.body.addLayout(row)
         layout.addWidget(power)
+
+        funnel = SurfaceCard("Requisitos Funnel")
+        funnel_hint = QLabel(
+            "Requisitos da conta/tailnet no admin Tailscale. "
+            "Todos precisam estar OK para o Funnel do Moonlight Web funcionar."
+        )
+        funnel_hint.setObjectName("Muted")
+        funnel_hint.setWordWrap(True)
+        funnel_hint.setAutoFillBackground(False)
+        funnel.body.addWidget(funnel_hint)
+
+        self._funnel_req_acl = QLabel()
+        self._funnel_req_acl.setAutoFillBackground(False)
+        funnel.body.addWidget(self._funnel_req_acl)
+
+        self._funnel_req_magic_dns = QLabel()
+        self._funnel_req_magic_dns.setAutoFillBackground(False)
+        funnel.body.addWidget(self._funnel_req_magic_dns)
+
+        self._funnel_req_https = QLabel()
+        self._funnel_req_https.setAutoFillBackground(False)
+        funnel.body.addWidget(self._funnel_req_https)
+
+        self._funnel_req_note = QLabel()
+        self._funnel_req_note.setObjectName("Muted")
+        self._funnel_req_note.setWordWrap(True)
+        self._funnel_req_note.setAutoFillBackground(False)
+        self._funnel_req_note.hide()
+        funnel.body.addWidget(self._funnel_req_note)
+
+        funnel_links = QHBoxLayout()
+        funnel_links.setSpacing(10)
+        self._funnel_acl_link = LinkButton(
+            "Abrir policy ACL (nodeAttrs funnel)",
+            "https://login.tailscale.com/admin/acls/file",
+        )
+        self._funnel_acl_link.clicked_url.connect(self._open_url)
+        self._funnel_dns_link = LinkButton(
+            "Abrir DNS (MagicDNS + Enable HTTPS)",
+            "https://login.tailscale.com/admin/dns",
+        )
+        self._funnel_dns_link.clicked_url.connect(self._open_url)
+        funnel_links.addWidget(self._funnel_acl_link)
+        funnel_links.addWidget(self._funnel_dns_link)
+        funnel_links.addStretch()
+        funnel.body.addLayout(funnel_links)
+        layout.addWidget(funnel)
+
         layout.addStretch()
 
         self._stack.addWidget(page)
@@ -472,6 +512,8 @@ class MainWindow(QMainWindow):
             self._stack.setCurrentIndex(index)
         if index == 4:
             self._moonlight_page.on_page_shown()
+            self._status_service.refresh(full=True)
+        elif index == 3:
             self._status_service.refresh(full=True)
 
     def _set_activity_idle(self) -> None:
@@ -809,6 +851,67 @@ class MainWindow(QMainWindow):
         if url:
             QDesktopServices.openUrl(QUrl(url))
 
+    def _set_funnel_requirement_label(
+        self,
+        label: QLabel,
+        title: str,
+        *,
+        available: bool,
+        ok: bool,
+    ) -> None:
+        if not available:
+            label.setText(f"{title} — indisponivel")
+            label.setObjectName("Muted")
+        elif ok:
+            label.setText(f"{title} — OK")
+            label.setObjectName("FunnelReqOk")
+        else:
+            label.setText(f"{title} — pendente")
+            label.setObjectName("FunnelReqMissing")
+        label.style().unpolish(label)
+        label.style().polish(label)
+
+    def _update_tailscale_funnel_requirements(self, status: HeadlessSteamStatus) -> None:
+        self._funnel_acl_link.set_url(
+            "Abrir policy ACL (nodeAttrs funnel)",
+            status.tailscale_funnel_acl_setup_url,
+        )
+        self._funnel_dns_link.set_url(
+            "Abrir DNS (MagicDNS + Enable HTTPS)",
+            status.tailscale_funnel_dns_setup_url,
+        )
+
+        if not status.tailscale_running:
+            for label, title in (
+                (self._funnel_req_acl, "Policy ACL — nodeAttrs funnel"),
+                (self._funnel_req_magic_dns, "DNS — MagicDNS"),
+                (self._funnel_req_https, "DNS — Enable HTTPS"),
+            ):
+                self._set_funnel_requirement_label(label, title, available=False, ok=False)
+            self._funnel_req_note.setText("Ligue o Tailscale para verificar.")
+            self._funnel_req_note.show()
+            return
+
+        self._funnel_req_note.hide()
+        self._set_funnel_requirement_label(
+            self._funnel_req_acl,
+            "Policy ACL — nodeAttrs funnel",
+            available=True,
+            ok=status.tailscale_funnel_acl_ok,
+        )
+        self._set_funnel_requirement_label(
+            self._funnel_req_magic_dns,
+            "DNS — MagicDNS",
+            available=True,
+            ok=status.tailscale_magic_dns_ok,
+        )
+        self._set_funnel_requirement_label(
+            self._funnel_req_https,
+            "DNS — Enable HTTPS",
+            available=True,
+            ok=status.tailscale_https_ok,
+        )
+
     def _open_sunshine_panel(self) -> None:
         status = self._status_service.last_status
         if not status or not status.sunshine_running:
@@ -859,6 +962,7 @@ class MainWindow(QMainWindow):
             f"VPN: {'conectada' if status.tailscale_connected else 'desconectada'}\n"
             f"IP Tailscale: {status.tailscale_ip or '—'}"
         )
+        self._update_tailscale_funnel_requirements(status)
 
         m_text, m_color = _status_style(status.moonlight_running)
         self._moonlight_card.set_state(m_text, m_color)
@@ -916,7 +1020,11 @@ class MainWindow(QMainWindow):
             and not status.sunshine_needs_setup
             and self._sunshine_service.has_saved_credentials()
         )
-        self._games_library.set_apps(result, use_api=use_api)
+        self._games_library.set_apps(
+            result,
+            use_api=use_api,
+            reload_covers=self._sunshine_service.consume_reload_covers(),
+        )
 
     def _on_sunshine_operation_failed(self, op_name: str, message: str) -> None:
         if op_name == "change_password":
@@ -1018,10 +1126,21 @@ class MainWindow(QMainWindow):
         if action == "atualizar_jogos" and success:
             self._last_games_refresh_key = None
             status = self._status_service.last_status
-            if status:
-                self._refresh_games_library(status)
+            use_api = bool(
+                status
+                and status.sunshine_running
+                and not status.sunshine_needs_setup
+                and self._sunshine_service.has_saved_credentials()
+            )
+            if use_api:
+                self._games_library.set_use_api(True)
+                self._sunshine_service.fetch_apps(reload_covers=True)
             else:
-                self._games_library.set_apps(load_apps_from_disk(), use_api=False)
+                self._games_library.set_apps(
+                    load_apps_from_disk(),
+                    use_api=False,
+                    reload_covers=True,
+                )
 
         self._sunshine_page.on_action_finished(action, success)
         self._moonlight_page.on_action_finished(action, success)

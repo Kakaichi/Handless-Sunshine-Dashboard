@@ -4,13 +4,26 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 from dataclasses import dataclass, replace
 from typing import Any
 
 from PySide6.QtCore import QObject, QThread, QTimer, Signal
 
+from app.moonlight_settings_store import load_settings
 from app.paths import get_app_root, script_path
+
+_QUICK_STATUS_FIELDS = frozenset({
+    "sunshine_running",
+    "tailscale_running",
+    "tailscale_connected",
+    "tailscale_ip",
+    "moonlight_running",
+    "moonlight_funnel_enabled",
+    "moonlight_skip_login_enabled",
+    "moonlight_tailscale_url",
+})
 
 
 @dataclass
@@ -27,6 +40,11 @@ class HeadlessSteamStatus:
     tailscale_funnel_allowed: bool = False
     tailscale_funnel_setup_url: str = "https://login.tailscale.com/admin/acls/file"
     tailscale_funnel_acl_setup_url: str = "https://login.tailscale.com/admin/acls/file"
+    tailscale_funnel_acl_ok: bool = False
+    tailscale_magic_dns_ok: bool = False
+    tailscale_https_ok: bool = False
+    tailscale_funnel_requirements_met: bool = False
+    tailscale_funnel_dns_setup_url: str = "https://login.tailscale.com/admin/dns"
     gamepad_mode: str = "auto"
     lan_ip: str | None = None
     sunshine_web_port: int = 47990
@@ -56,6 +74,13 @@ class HeadlessSteamStatus:
             tailscale_funnel_acl_setup_url=str(
                 data.get("TailscaleFunnelAclSetupUrl") or "https://login.tailscale.com/admin/acls/file"
             ),
+            tailscale_funnel_acl_ok=bool(data.get("TailscaleFunnelAclOk")),
+            tailscale_magic_dns_ok=bool(data.get("TailscaleMagicDnsOk")),
+            tailscale_https_ok=bool(data.get("TailscaleHttpsOk")),
+            tailscale_funnel_requirements_met=bool(data.get("TailscaleFunnelRequirementsMet")),
+            tailscale_funnel_dns_setup_url=str(
+                data.get("TailscaleFunnelDnsSetupUrl") or "https://login.tailscale.com/admin/dns"
+            ),
             gamepad_mode=str(data.get("GamepadMode") or "auto"),
             lan_ip=data.get("LanIp") or None,
             sunshine_web_port=int(data.get("SunshineWebPort") or 47990),
@@ -68,7 +93,121 @@ class HeadlessSteamStatus:
         )
 
 
+def _windows_service_running(service_name: str) -> bool:
+    try:
+        completed = subprocess.run(
+            ["sc", "query", service_name],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return "RUNNING" in (completed.stdout or "")
+
+
+def _process_image_running(image_name: str) -> bool:
+    try:
+        completed = subprocess.run(
+            ["tasklist", "/FI", f"IMAGENAME eq {image_name}", "/NH"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return image_name.lower() in (completed.stdout or "").lower()
+
+
+_TAILSCALE_IPV4_RE = re.compile(r"\b(100(?:\.\d{1,3}){3})\b")
+_TAILSCALE_EXE = r"C:\Program Files\Tailscale\tailscale.exe"
+
+
+def _parse_tailscale_ipv4_from_ipconfig(text: str) -> str | None:
+    lines = text.splitlines()
+    in_tailscale = False
+    for line in lines:
+        if re.search(r"tailscale", line, re.IGNORECASE):
+            in_tailscale = True
+            continue
+
+        stripped = line.strip()
+        if not stripped:
+            if in_tailscale:
+                in_tailscale = False
+            continue
+
+        if in_tailscale and ("IPv4" in line or "Endere" in line):
+            match = re.search(r"(\d+\.\d+\.\d+\.\d+)", line)
+            if match and match.group(1).startswith("100."):
+                return match.group(1)
+
+    match = _TAILSCALE_IPV4_RE.search(text)
+    return match.group(1) if match else None
+
+
+def _query_tailscale_ipv4_cli() -> str | None:
+    if not os.path.isfile(_TAILSCALE_EXE):
+        return None
+    try:
+        completed = subprocess.run(
+            [_TAILSCALE_EXE, "ip", "-4"],
+            capture_output=True,
+            text=True,
+            timeout=4,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    for line in (completed.stdout or "").splitlines():
+        ip = line.strip()
+        if ip.startswith("100."):
+            return ip
+    return None
+
+
+def _query_tailscale_ipv4_fast() -> str | None:
+    try:
+        completed = subprocess.run(
+            ["ipconfig"],
+            capture_output=True,
+            text=True,
+            encoding="cp850",
+            errors="replace",
+            timeout=2,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return _query_tailscale_ipv4_cli()
+
+    ip = _parse_tailscale_ipv4_from_ipconfig(completed.stdout or "")
+    return ip or _query_tailscale_ipv4_cli()
+
+
+def fetch_quick_status() -> HeadlessSteamStatus:
+    settings = load_settings()
+    sunshine_running = _windows_service_running("SunshineService")
+    tailscale_running = _windows_service_running("Tailscale")
+    tailscale_ip = _query_tailscale_ipv4_fast() if tailscale_running else None
+
+    return HeadlessSteamStatus(
+        sunshine_running=sunshine_running,
+        tailscale_running=tailscale_running,
+        tailscale_connected=bool(tailscale_ip),
+        tailscale_ip=tailscale_ip,
+        moonlight_running=_process_image_running("web-server.exe"),
+        moonlight_funnel_enabled=settings.public_funnel_enabled,
+        moonlight_skip_login_enabled=settings.skip_login_enabled,
+        moonlight_tailscale_url=f"http://{tailscale_ip}:8080" if tailscale_ip else None,
+    )
+
+
 def fetch_status(*, quick: bool = False) -> HeadlessSteamStatus:
+    if quick:
+        return fetch_quick_status()
+
     ps1 = script_path("HeadlessSteam-Status.ps1")
     args = [
         "powershell.exe",
@@ -78,8 +217,6 @@ def fetch_status(*, quick: bool = False) -> HeadlessSteamStatus:
         "-File",
         str(ps1),
     ]
-    if quick:
-        args.append("-Quick")
 
     env = os.environ.copy()
     env.setdefault("HEADLESS_STEAM_APP_ROOT", str(get_app_root()))
@@ -90,7 +227,7 @@ def fetch_status(*, quick: bool = False) -> HeadlessSteamStatus:
         text=True,
         encoding="utf-8",
         errors="replace",
-        timeout=20 if quick else 60,
+        timeout=60,
         creationflags=subprocess.CREATE_NO_WINDOW,
         env=env,
     )
@@ -143,7 +280,15 @@ class StatusService(QObject):
 
     def start(self) -> None:
         self._stopped = False
+        try:
+            quick = fetch_quick_status()
+            self._last_status = quick
+            self._poll_count = 1
+            self.status_changed.emit(quick)
+        except Exception:
+            pass
         self.refresh()
+        QTimer.singleShot(250, lambda: self.refresh(full=True))
         self._timer.start()
 
     def stop(self) -> None:
@@ -175,7 +320,8 @@ class StatusService(QObject):
 
     def _start_worker(self, *, full: bool = False) -> None:
         self._refresh_pending_full = False
-        quick = not full and (self._poll_count == 0 or self._poll_count % 5 != 0)
+        needs_full = full or (self._poll_count > 0 and self._poll_count % 12 == 0)
+        quick = not needs_full
         worker_epoch = self._status_epoch
         worker = _StatusWorker(quick=quick, parent=self)
         self._worker = worker
@@ -186,36 +332,59 @@ class StatusService(QObject):
         worker.finished.connect(self._on_worker_finished)
         worker.start()
 
-    def _merge_sticky_funnel_fields(
+    def _merge_quick_status(
         self,
         status: HeadlessSteamStatus,
         previous: HeadlessSteamStatus,
     ) -> HeadlessSteamStatus:
-        if not status.moonlight_funnel_enabled:
-            return status
+        updates = {field: getattr(status, field) for field in _QUICK_STATUS_FIELDS}
 
-        updates: dict[str, object] = {}
-        if not status.moonlight_funnel_url and previous.moonlight_funnel_url:
-            updates["moonlight_funnel_url"] = previous.moonlight_funnel_url
-            updates["moonlight_funnel_active"] = True
-        if not status.tailscale_funnel_allowed and previous.tailscale_funnel_allowed:
-            updates["tailscale_funnel_allowed"] = True
+        if status.tailscale_running:
+            if status.tailscale_ip:
+                updates["tailscale_connected"] = True
+                updates["moonlight_tailscale_url"] = f"http://{status.tailscale_ip}:8080"
+            elif previous.tailscale_ip:
+                updates["tailscale_ip"] = previous.tailscale_ip
+                updates["tailscale_connected"] = True
+                updates["moonlight_tailscale_url"] = previous.moonlight_tailscale_url
+            else:
+                updates["tailscale_connected"] = False
+                updates["tailscale_ip"] = None
+                updates["moonlight_tailscale_url"] = None
+        else:
+            updates["tailscale_connected"] = False
+            updates["tailscale_ip"] = None
+            updates["moonlight_tailscale_url"] = None
 
-        if updates:
-            return replace(status, **updates)
-        return status
+        merged = replace(previous, **updates)
+
+        if not merged.moonlight_funnel_enabled:
+            return merged
+
+        sticky: dict[str, object] = {}
+        if not merged.moonlight_funnel_url and previous.moonlight_funnel_url:
+            sticky["moonlight_funnel_url"] = previous.moonlight_funnel_url
+            sticky["moonlight_funnel_active"] = True
+        if not merged.tailscale_funnel_allowed and previous.tailscale_funnel_allowed:
+            sticky["tailscale_funnel_allowed"] = True
+
+        if sticky:
+            return replace(merged, **sticky)
+        return merged
 
     def _on_worker_ok(self, status: HeadlessSteamStatus, quick: bool, worker_epoch: int) -> None:
         if self._stopped or worker_epoch != self._status_epoch:
             return
         if quick and self._last_status is not None:
-            status = self._merge_sticky_funnel_fields(status, self._last_status)
+            status = self._merge_quick_status(status, self._last_status)
         self._poll_count += 1
         self._last_status = status
         self.status_changed.emit(status)
 
     def _on_worker_err(self, message: str) -> None:
         if self._stopped:
+            return
+        if self._last_status is not None:
             return
         self.error.emit(message)
 

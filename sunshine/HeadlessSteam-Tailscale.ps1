@@ -1,8 +1,13 @@
 $script:HeadlessSteamTailscaleExe = "C:\Program Files\Tailscale\tailscale.exe"
 $script:HeadlessSteamTailscaleFunnelAclUrl = "https://login.tailscale.com/admin/acls/file"
+$script:HeadlessSteamTailscaleFunnelDnsUrl = "https://login.tailscale.com/admin/dns"
 
 function Get-HeadlessSteamTailscaleFunnelAclUrl {
     return $script:HeadlessSteamTailscaleFunnelAclUrl
+}
+
+function Get-HeadlessSteamTailscaleFunnelDnsSetupUrl {
+    return $script:HeadlessSteamTailscaleFunnelDnsUrl
 }
 
 function Get-HeadlessSteamTailscaleFunnelSetupUrl {
@@ -13,6 +18,45 @@ function Get-HeadlessSteamTailscaleExe {
     if (Test-Path -LiteralPath $script:HeadlessSteamTailscaleExe) {
         return $script:HeadlessSteamTailscaleExe
     }
+    return $null
+}
+
+function Get-HeadlessSteamTailscaleIpv4Fast {
+    foreach ($addr in (Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue)) {
+        if ($addr.IPAddress -match '^100\.' -and $addr.InterfaceAlias -match 'Tailscale') {
+            return $addr.IPAddress
+        }
+    }
+
+    foreach ($addr in (Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue)) {
+        if ($addr.IPAddress -match '^100\.') {
+            return $addr.IPAddress
+        }
+    }
+
+    return $null
+}
+
+function Get-HeadlessSteamTailscaleIpv4 {
+    param([int]$TimeoutSeconds = 4)
+
+    $ip = Get-HeadlessSteamTailscaleIpv4Fast
+    if ($ip) {
+        return $ip
+    }
+
+    $result = Invoke-HeadlessSteamTailscaleCommand -ArgumentList @("ip", "-4") -TimeoutSeconds $TimeoutSeconds
+    if (-not $result.Output) {
+        return $null
+    }
+
+    foreach ($line in ($result.Output -split "`n")) {
+        $ip = $line.Trim()
+        if ($ip) {
+            return $ip
+        }
+    }
+
     return $null
 }
 
@@ -44,8 +88,32 @@ function Invoke-HeadlessSteamTailscaleCommand {
     $psi.CreateNoWindow = $true
 
     $proc = [System.Diagnostics.Process]::Start($psi)
-    if (-not $proc.WaitForExit([Math]::Max(1, $TimeoutSeconds) * 1000)) {
+    $stdoutTask = $proc.StandardOutput.ReadToEndAsync()
+    $stderrTask = $proc.StandardError.ReadToEndAsync()
+    $timedOut = -not $proc.WaitForExit([Math]::Max(1, $TimeoutSeconds) * 1000)
+    if ($timedOut) {
         try { $proc.Kill() } catch { }
+    }
+
+    [void]$stdoutTask.Wait(2500)
+    [void]$stderrTask.Wait(2500)
+    $stdout = $stdoutTask.GetAwaiter().GetResult()
+    $stderr = $stderrTask.GetAwaiter().GetResult()
+    if ($stdout -and $stdout.Length -ge 1 -and [int][char]$stdout[0] -eq 0xFEFF) {
+        $stdout = $stdout.Substring(1)
+    }
+
+    if ($timedOut -and -not [string]::IsNullOrWhiteSpace($stdout)) {
+        return [pscustomobject]@{
+            Success  = $true
+            ExitCode = 0
+            TimedOut = $false
+            Output   = [string]$stdout
+            Error    = [string]$stderr
+        }
+    }
+
+    if ($timedOut) {
         return [pscustomobject]@{
             Success  = $false
             ExitCode = -1
@@ -55,11 +123,6 @@ function Invoke-HeadlessSteamTailscaleCommand {
         }
     }
 
-    $stdout = $proc.StandardOutput.ReadToEnd()
-    $stderr = $proc.StandardError.ReadToEnd()
-    if ($stdout -and $stdout.Length -ge 1 -and [int][char]$stdout[0] -eq 0xFEFF) {
-        $stdout = $stdout.Substring(1)
-    }
     return [pscustomobject]@{
         Success  = ($proc.ExitCode -eq 0)
         ExitCode = $proc.ExitCode
@@ -417,4 +480,83 @@ function Get-HeadlessSteamTailscaleFunnelFailureHint {
     }
 
     return $null
+}
+
+function Test-HeadlessSteamTailscaleHttpsCertsEnabled {
+    param($Status)
+
+    if (-not $Status) {
+        return $false
+    }
+
+    $certDomains = @($Status.CertDomains)
+    if ($certDomains.Count -gt 0) {
+        return $true
+    }
+
+    foreach ($line in @($Status.Health)) {
+        if ($line -match '(?i)certificates are not enabled|enable https|HTTPS certificates') {
+            return $false
+        }
+    }
+
+    $funnelResult = Invoke-HeadlessSteamTailscaleCommand -ArgumentList @("funnel", "status") -TimeoutSeconds 8
+    $combined = ([string]$funnelResult.Output + "`n" + [string]$funnelResult.Error).Trim()
+    if ((Get-HeadlessSteamTailscaleFunnelFailureHint -CombinedOutput $combined) -eq "TAILSCALE_HTTPS_OR_DNS") {
+        return $false
+    }
+
+    if ($Status.CurrentTailnet -and $Status.CurrentTailnet.MagicDNSEnabled -and $Status.Self -and $Status.Self.DNSName) {
+        if ($Status.Self.DNSName -match '\.ts\.net') {
+            return $true
+        }
+    }
+
+    return $false
+}
+
+function Get-HeadlessSteamTailscaleFunnelRequirements {
+    $result = [ordered]@{
+        Checked     = $false
+        AclFunnel   = $false
+        MagicDns    = $false
+        HttpsCerts  = $false
+        AllMet      = $false
+        AclSetupUrl = (Get-HeadlessSteamTailscaleFunnelAclUrl)
+        DnsSetupUrl = (Get-HeadlessSteamTailscaleFunnelDnsSetupUrl)
+        Note        = ""
+    }
+
+    if (-not (Get-HeadlessSteamTailscaleExe)) {
+        $result.Note = "Tailscale nao instalado."
+        return [pscustomobject]$result
+    }
+
+    $tsSvc = Get-Service -Name "Tailscale" -ErrorAction SilentlyContinue
+    if (-not $tsSvc -or $tsSvc.Status -ne "Running") {
+        $result.Note = "Ligue o Tailscale para verificar os requisitos."
+        return [pscustomobject]$result
+    }
+
+    $statusResult = Invoke-HeadlessSteamTailscaleCommand -ArgumentList @("status", "--json") -TimeoutSeconds 10
+    if ($statusResult.TimedOut -or -not $statusResult.Output) {
+        $result.Note = "Tailscale nao respondeu ao status --json."
+        return [pscustomobject]$result
+    }
+
+    $status = ConvertFrom-HeadlessSteamTailscaleJson -Text $statusResult.Output
+    if (-not $status) {
+        $result.Note = "Resposta invalida do tailscale status --json."
+        return [pscustomobject]$result
+    }
+
+    $result.Checked = $true
+    $result.AclFunnel = Test-HeadlessSteamTailscaleNodeHasFunnelCapability -Self $status.Self
+    if ($status.CurrentTailnet) {
+        $result.MagicDns = [bool]$status.CurrentTailnet.MagicDNSEnabled
+    }
+    $result.HttpsCerts = Test-HeadlessSteamTailscaleHttpsCertsEnabled -Status $status
+    $result.AllMet = $result.AclFunnel -and $result.MagicDns -and $result.HttpsCerts
+
+    return [pscustomobject]$result
 }

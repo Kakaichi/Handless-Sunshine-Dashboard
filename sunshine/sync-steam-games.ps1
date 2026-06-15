@@ -1,4 +1,8 @@
 #Requires -RunAsAdministrator
+param(
+    [switch]$RefreshCovers
+)
+
 $ErrorActionPreference = "Stop"
 
 if ($Host.Name -eq 'ConsoleHost') {
@@ -130,8 +134,26 @@ Add-Type -AssemblyName System.Drawing
 $Script:CoverWidth = 600
 $Script:CoverHeight = 900
 
-function Test-ValidCoverImage {
+function Test-ExistingGameCover {
     param([string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return $false
+    }
+
+    try {
+        $file = Get-Item -LiteralPath $Path -ErrorAction Stop
+        return $file.Length -ge 8192
+    } catch {
+        return $false
+    }
+}
+
+function Test-ValidCoverImage {
+    param(
+        [string]$Path,
+        [switch]$RequireVerticalPoster
+    )
 
     try {
         $file = Get-Item $Path -ErrorAction Stop
@@ -139,6 +161,9 @@ function Test-ValidCoverImage {
 
         $image = [System.Drawing.Image]::FromFile($Path)
         $valid = $image.Width -ge 150 -and $image.Height -ge 150
+        if ($valid -and $RequireVerticalPoster) {
+            $valid = $image.Height -ge [int][Math]::Round($image.Width * 1.1)
+        }
         $image.Dispose()
         return $valid
     } catch {
@@ -146,13 +171,40 @@ function Test-ValidCoverImage {
     }
 }
 
+function Test-VerticalPosterCoverPath {
+    param([string]$Path)
+
+    if (-not $Path) { return $false }
+    $name = Split-Path -Leaf $Path
+    if ($name -match '(?i)header|hero|logo|banner|background|event|wide') {
+        return $false
+    }
+    if ($name -match '(?i)library_600x900|library_capsule|capsule_.*vertical|vertical') {
+        return $true
+    }
+    return $null
+}
+
+function Get-HeadlessSteamCoverSourceAppId {
+    param([Parameter(Mandatory = $true)][string]$AppId)
+
+    $aliases = @{
+        "312060" = "39210" # FINAL FANTASY XIV Free Trial -> capa do jogo principal
+    }
+    if ($aliases.ContainsKey($AppId)) {
+        return $aliases[$AppId]
+    }
+    return $AppId
+}
+
 function Save-ImageFileAsPng {
     param(
         [Parameter(Mandatory = $true)][string]$InputPath,
-        [Parameter(Mandatory = $true)][string]$OutputPath
+        [Parameter(Mandatory = $true)][string]$OutputPath,
+        [switch]$RequireVerticalPoster
     )
 
-    if (-not (Test-ValidCoverImage -Path $InputPath)) {
+    if (-not (Test-ValidCoverImage -Path $InputPath -RequireVerticalPoster:$RequireVerticalPoster)) {
         return $false
     }
 
@@ -203,7 +255,8 @@ function Save-ImageFileAsPng {
 function Save-ImageUrlAsPng {
     param(
         [Parameter(Mandatory = $true)][string]$Url,
-        [Parameter(Mandatory = $true)][string]$OutputPath
+        [Parameter(Mandatory = $true)][string]$OutputPath,
+        [switch]$RequireVerticalPoster
     )
 
     $tempFile = [System.IO.Path]::Combine(
@@ -214,7 +267,7 @@ function Save-ImageUrlAsPng {
     try {
         Invoke-WebRequest -Uri $Url -OutFile $tempFile -UseBasicParsing -TimeoutSec 20 | Out-Null
 
-        if (Save-ImageFileAsPng -InputPath $tempFile -OutputPath $OutputPath) {
+        if (Save-ImageFileAsPng -InputPath $tempFile -OutputPath $OutputPath -RequireVerticalPoster:$RequireVerticalPoster) {
             return $true
         }
     } catch {
@@ -265,13 +318,7 @@ function Get-SteamStoreCoverUrls {
         $entry = $response.$AppId
 
         if ($entry -and $entry.success -and $entry.data) {
-            foreach ($field in @(
-                "capsule_imagev5",
-                "capsule_image",
-                "header_image",
-                "library_hero",
-                "background_raw"
-            )) {
+            foreach ($field in @("capsule_imagev5", "capsule_image")) {
                 $value = $entry.data.$field
                 if ($value -and -not $urls.Contains($value)) {
                     $urls.Add($value) | Out-Null
@@ -312,7 +359,12 @@ function Get-LocalSteamCoverUrls {
         }
     }
 
-    return $urls
+    return @($urls | Sort-Object {
+        $hint = Test-VerticalPosterCoverPath -Path $_
+        if ($hint -eq $true) { 0 }
+        elseif ($hint -eq $false) { 2 }
+        else { 1 }
+    })
 }
 
 function Get-SteamStoreBrowseAssetsMap {
@@ -362,7 +414,7 @@ function Get-SteamStoreBrowseCoverUrls {
         "https://shared.fastly.steamstatic.com/store_item_assets/"
     )
 
-    foreach ($field in @("library_capsule_2x", "library_capsule", "library_hero_2x", "library_hero")) {
+    foreach ($field in @("library_capsule_2x", "library_capsule")) {
         $filename = $Assets.$field
         if (-not $filename) { continue }
 
@@ -431,55 +483,71 @@ function Save-GameCover {
         $StoreBrowseAssets = $null
     )
 
-    $candidates = New-Object System.Collections.Generic.List[string]
+    $coverAppId = Get-HeadlessSteamCoverSourceAppId -AppId $AppId
 
     $manualCover = Get-ManualCoverPath -AppId $AppId
+    if (-not $manualCover) {
+        $manualCover = Get-ManualCoverPath -AppId $coverAppId
+    }
     if ($manualCover) {
-        if (Save-ImageFileAsPng -InputPath $manualCover -OutputPath $OutputPath) {
+        if (Save-ImageFileAsPng -InputPath $manualCover -OutputPath $OutputPath -RequireVerticalPoster) {
             return @{ Success = $true; Source = "Manual" }
         }
     }
 
-    foreach ($url in (Get-SteamStoreBrowseCoverUrls -Assets $StoreBrowseAssets)) {
-        $candidates.Add($url) | Out-Null
+    $urlCandidates = New-Object System.Collections.Generic.List[string]
+    if ($coverAppId -eq $AppId) {
+        foreach ($url in (Get-SteamStoreBrowseCoverUrls -Assets $StoreBrowseAssets)) {
+            $urlCandidates.Add($url) | Out-Null
+        }
+    } else {
+        $aliasAssets = Get-SteamStoreBrowseAssetsMap -AppIds @([int]$coverAppId)
+        foreach ($url in (Get-SteamStoreBrowseCoverUrls -Assets $aliasAssets[[string]$coverAppId])) {
+            $urlCandidates.Add($url) | Out-Null
+        }
+    }
+    foreach ($url in (Get-SteamCdnUrls -AppId $coverAppId)) {
+        $urlCandidates.Add($url) | Out-Null
     }
 
-    foreach ($url in (Get-SteamCdnUrls -AppId $AppId)) {
-        $candidates.Add($url) | Out-Null
-    }
-
-    foreach ($url in (Get-SteamGridDbCoverUrls -AppId $AppId)) {
-        $candidates.Add($url) | Out-Null
-    }
-
-    foreach ($url in (Get-SteamStoreCoverUrls -AppId $AppId)) {
-        $candidates.Add($url) | Out-Null
-    }
-
-    foreach ($path in (Get-LocalSteamCoverUrls -AppId $AppId)) {
-        $candidates.Add($path) | Out-Null
-    }
-
-    foreach ($candidate in ($candidates | Select-Object -Unique)) {
+    foreach ($candidate in ($urlCandidates | Select-Object -Unique)) {
         if (-not $candidate) { continue }
-
-        if ($candidate -match '^https?://') {
-            if (Save-ImageUrlAsPng -Url $candidate -OutputPath $OutputPath) {
-                $source = if ($candidate -match 'store_item_assets') { "Steam Assets" }
-                          elseif ($candidate -match 'steamgriddb') { "SteamGridDB" }
-                          elseif ($candidate -match 'store_item_assets|akamai|steamstatic') { "Steam Store" }
-                          else { "Steam CDN" }
-                return @{
-                    Success = $true
-                    Source  = $source
-                }
+        if (Save-ImageUrlAsPng -Url $candidate -OutputPath $OutputPath -RequireVerticalPoster) {
+            $source = if ($candidate -match 'store_item_assets') { "Steam Assets" }
+                      elseif ($candidate -match 'akamai|steamstatic') { "Steam CDN" }
+                      else { "Steam Store" }
+            return @{
+                Success = $true
+                Source  = $source
             }
-        } elseif (Test-Path $candidate) {
-            if (Save-ImageFileAsPng -InputPath $candidate -OutputPath $OutputPath) {
-                return @{
-                    Success = $true
-                    Source  = "Cache local"
-                }
+        }
+    }
+
+    foreach ($path in (Get-LocalSteamCoverUrls -AppId $coverAppId)) {
+        $hint = Test-VerticalPosterCoverPath -Path $path
+        if ($hint -eq $false) { continue }
+        if (Save-ImageFileAsPng -InputPath $path -OutputPath $OutputPath -RequireVerticalPoster) {
+            return @{
+                Success = $true
+                Source  = "Cache local"
+            }
+        }
+    }
+
+    foreach ($url in (Get-SteamGridDbCoverUrls -AppId $coverAppId)) {
+        if (Save-ImageUrlAsPng -Url $url -OutputPath $OutputPath -RequireVerticalPoster) {
+            return @{
+                Success = $true
+                Source  = "SteamGridDB"
+            }
+        }
+    }
+
+    foreach ($url in (Get-SteamStoreCoverUrls -AppId $coverAppId)) {
+        if (Save-ImageUrlAsPng -Url $url -OutputPath $OutputPath -RequireVerticalPoster) {
+            return @{
+                Success = $true
+                Source  = "Steam Store API"
             }
         }
     }
@@ -565,12 +633,11 @@ foreach ($steamRoot in $steamPaths) {
     if (-not (Test-Path $manifestDir)) { continue }
 
     Get-ChildItem $manifestDir -Filter "appmanifest_*.acf" | ForEach-Object {
-        $lines = Get-Content $_.FullName
-        $appid = (($lines | Where-Object { $_ -match '"appid"' }) -replace '.*"(\d+)".*', '$1').Trim()
-        $name  = (($lines | Where-Object { $_ -match '"name"' }) -replace '.*"name"\s+"([^"]+)".*', '$1').Trim()
-        $installDir = (($lines | Where-Object { $_ -match '"installdir"' }) -replace '.*"installdir"\s+"([^"]+)".*', '$1').Trim()
-        $launcherPath = (($lines | Where-Object { $_ -match '"LauncherPath"' }) -replace '.*"LauncherPath"\s+"([^"]+)".*', '$1').Trim()
-        $launcherPath = $launcherPath -replace '\\\\', '\'
+        $raw = Get-Content -LiteralPath $_.FullName -Raw -Encoding UTF8
+        if ($raw -match '"appid"\s+"(\d+)"') { $appid = $Matches[1] } else { return }
+        if ($raw -match '"name"\s+"([^"]+)"') { $name = $Matches[1] } else { return }
+        $installDir = if ($raw -match '"installdir"\s+"([^"]+)"') { $Matches[1] } else { "" }
+        $launcherPath = if ($raw -match '"LauncherPath"\s+"([^"]+)"') { $Matches[1] -replace '\\\\', '\' } else { "" }
         $steamExe = if ($launcherPath -and (Test-Path $launcherPath)) {
             $launcherPath
         } elseif (Test-Path (Join-Path $steamRoot "steam.exe")) {
@@ -595,9 +662,27 @@ foreach ($steamRoot in $steamPaths) {
     }
 }
 
-$assetsMap = Get-SteamStoreBrowseAssetsMap -AppIds @(
-    $pendingGames | ForEach-Object { [int]$_.AppId }
-)
+$gamesNeedingCovers = New-Object System.Collections.Generic.List[object]
+foreach ($game in $pendingGames) {
+    $coverPath = Join-Path $coversDir "$($game.AppId).png"
+    if (-not $RefreshCovers -and (Test-ExistingGameCover -Path $coverPath)) {
+        continue
+    }
+    $gamesNeedingCovers.Add($game) | Out-Null
+}
+
+$cachedCovers = $pendingGames.Count - $gamesNeedingCovers.Count
+if ($cachedCovers -gt 0) {
+    Write-Host "Capas em cache: $cachedCovers (pulando download)"
+}
+
+$assetsMap = @{}
+if ($gamesNeedingCovers.Count -gt 0) {
+    Write-Host "Buscando capas novas: $($gamesNeedingCovers.Count)"
+    $assetsMap = Get-SteamStoreBrowseAssetsMap -AppIds @(
+        $gamesNeedingCovers | ForEach-Object { [int]$_.AppId }
+    )
+}
 
 foreach ($game in $pendingGames) {
     $appid = $game.AppId
@@ -608,16 +693,21 @@ foreach ($game in $pendingGames) {
 
         $coverPath = Join-Path $coversDir "$appid.png"
         $imagePath = "steam.png"
-        $browseAssets = $assetsMap[[string]$appid]
-        $result = Save-GameCover -AppId $appid -OutputPath $coverPath -StoreBrowseAssets $browseAssets
-
-        if ($result.Success) {
-            $imagePath = $coverPath
+        if (-not $RefreshCovers -and (Test-ExistingGameCover -Path $coverPath)) {
+            $imagePath = "covers\$appid.png"
             $coverOk++
-            Write-Host "Capa OK ($($result.Source)): $name"
         } else {
-            $coverFail++
-            Write-Host "Capa nao encontrada: $name (usa icone padrao)"
+            $browseAssets = $assetsMap[[string]$appid]
+            $result = Save-GameCover -AppId $appid -OutputPath $coverPath -StoreBrowseAssets $browseAssets
+
+            if ($result.Success) {
+                $imagePath = "covers\$appid.png"
+                $coverOk++
+                Write-Host "Capa OK ($($result.Source)): $name"
+            } else {
+                $coverFail++
+                Write-Host "Capa nao encontrada: $name (usa icone padrao)"
+            }
         }
 
         $gameDir = if ($installDir) {

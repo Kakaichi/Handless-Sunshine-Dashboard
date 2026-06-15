@@ -317,7 +317,21 @@ function Write-SunshineAppsJsonForConfig {
 
         $destName = Split-Path -Leaf $sourcePath
         $destPath = Join-Path $DestCoversDir $destName
-        Copy-Item -LiteralPath $sourcePath -Destination $destPath -Force
+
+        $needsCopy = $true
+        if (Test-Path -LiteralPath $destPath) {
+            $sourceInfo = Get-Item -LiteralPath $sourcePath
+            $destInfo = Get-Item -LiteralPath $destPath
+            if ($sourceInfo.Length -eq $destInfo.Length -and
+                $sourceInfo.LastWriteTimeUtc -le $destInfo.LastWriteTimeUtc -and
+                (Test-ValidSunshineCoverPng -Path $destPath)) {
+                $needsCopy = $false
+            }
+        }
+
+        if ($needsCopy) {
+            Copy-Item -LiteralPath $sourcePath -Destination $destPath -Force
+        }
 
         if (-not (Test-ValidSunshineCoverPng -Path $destPath)) {
             continue
@@ -378,6 +392,7 @@ function Publish-SunshineAppsJson {
     $lastAppsCount = 0
     $totalCoversCopied = 0
     $publishErrors = New-Object System.Collections.Generic.List[string]
+    $anyConfigChanged = $false
 
     foreach ($sunshineConfigDir in $configDirs) {
         try {
@@ -388,6 +403,11 @@ function Publish-SunshineAppsJson {
 
             $sunshineApps = Join-Path $sunshineConfigDir "apps.json"
             $destCoversDir = Join-Path $sunshineConfigDir "covers"
+            $previousAppsJson = if (Test-Path -LiteralPath $sunshineApps) {
+                Get-Content -Path $sunshineApps -Raw -Encoding UTF8
+            } else {
+                $null
+            }
 
             $coversCopied = Write-SunshineAppsJsonForConfig `
                 -AppsFile $AppsFile `
@@ -403,6 +423,11 @@ function Publish-SunshineAppsJson {
             $appsCount = @($published.apps).Count
             if ($appsCount -lt 1) {
                 throw "apps.json publicado sem aplicativos em $sunshineApps"
+            }
+
+            $currentAppsJson = Get-Content -Path $sunshineApps -Raw -Encoding UTF8
+            if ($previousAppsJson -ne $currentAppsJson) {
+                $anyConfigChanged = $true
             }
 
             [void]$publishedPaths.Add($sunshineApps)
@@ -464,14 +489,22 @@ function Publish-SunshineAppsJson {
 
     if ($sunshineService) {
         try {
-            if ($sunshineService.Status -ne 'Running') {
+            if (-not $anyConfigChanged) {
+                if (-not $Quiet) {
+                    Write-Host "Sunshine: apps.json inalterado; servico nao reiniciado."
+                }
+            } elseif ($sunshineService.Status -ne 'Running') {
                 Start-Service SunshineService -ErrorAction Stop
+                $result.ServiceRestarted = $true
+                if (-not $Quiet) {
+                    Write-Host "Sunshine iniciado. Feche e reabra o Moonlight."
+                }
             } else {
                 Restart-Service SunshineService -ErrorAction Stop
-            }
-            $result.ServiceRestarted = $true
-            if (-not $Quiet) {
-                Write-Host "Sunshine reiniciado. Feche e reabra o Moonlight."
+                $result.ServiceRestarted = $true
+                if (-not $Quiet) {
+                    Write-Host "Sunshine reiniciado. Feche e reabra o Moonlight."
+                }
             }
         } catch {
             $result.ServiceRestarted = $false

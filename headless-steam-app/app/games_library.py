@@ -1,16 +1,18 @@
-"""Games library grid with cover art (Sunshine web style)."""
+"""Games library for dashboard grid and Sunshine list views."""
 
 from __future__ import annotations
 
 import math
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 
 from PySide6.QtCore import QEvent, QObject, QRectF, QRunnable, QSize, Qt, QThreadPool, QTimer, Signal
-from PySide6.QtGui import QColor, QFontMetrics, QImage, QPainter, QPainterPath, QPixmap
+from PySide6.QtGui import QColor, QFontMetrics, QIcon, QImage, QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
     QLabel,
+    QListWidget,
+    QListWidgetItem,
     QScrollArea,
     QSizePolicy,
     QVBoxLayout,
@@ -25,6 +27,12 @@ POSTER_HEIGHT = int(TILE_WIDTH * 1.5)  # 2:3 portrait (Steam 600x900)
 TILE_SPACING = 12
 TILE_NAME_HEIGHT = 20
 TILE_HEIGHT = POSTER_HEIGHT + 6 + TILE_NAME_HEIGHT
+
+LIST_ICON_WIDTH = 40
+LIST_ICON_HEIGHT = 56
+LIST_ROW_HEIGHT = 64
+
+LayoutMode = Literal["grid", "list"]
 
 
 class _CoverSignals(QObject):
@@ -145,16 +153,20 @@ class GamesLibraryWidget(QWidget):
         self,
         sunshine_service: SunshineService | None = None,
         parent: QWidget | None = None,
+        *,
+        layout_mode: LayoutMode = "grid",
     ) -> None:
         super().__init__(parent)
         self._service = sunshine_service
+        self._layout_mode = layout_mode
         self._use_api = False
         self._apps: list[dict[str, Any]] = []
         self._tiles: dict[int, GameTile] = {}
+        self._list_items: dict[int, QListWidgetItem] = {}
         self._cover_cache: dict[int, QPixmap] = {}
         self._pending_covers: set[int] = set()
         self._last_cover_signature: tuple[str, ...] = ()
-        self._disk_cover_by_name: dict[str, Path] = {}
+        self._disk_cover_by_name: dict[str, Any] = {}
         self._last_cols = 0
         self._thread_pool = QThreadPool.globalInstance()
         self._cover_signals = _CoverSignals()
@@ -168,35 +180,51 @@ class GamesLibraryWidget(QWidget):
         self._empty_label.setObjectName("Muted")
         self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._empty_label.hide()
-
-        self._scroll = QScrollArea()
-        self._scroll.setWidgetResizable(True)
-        self._scroll.setFrameShape(QScrollArea.Shape.NoFrame)
-        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-
-        self._grid_host = QWidget()
-        self._grid_host.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
-        self._grid = QGridLayout(self._grid_host)
-        self._grid.setContentsMargins(0, 12, 0, 8)
-        self._grid.setSpacing(TILE_SPACING)
-        self._grid.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
-
-        self._scroll.setWidget(self._grid_host)
-        self._scroll.viewport().installEventFilter(self)
         outer.addWidget(self._empty_label)
-        outer.addWidget(self._scroll, stretch=1)
+
+        if self._layout_mode == "list":
+            self._list_widget = QListWidget()
+            self._list_widget.setObjectName("GamesList")
+            self._list_widget.setUniformItemSizes(True)
+            self._list_widget.setSelectionMode(QListWidget.SelectionMode.NoSelection)
+            self._list_widget.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            outer.addWidget(self._list_widget, stretch=1)
+            self._scroll = None
+            self._grid_host = None
+            self._grid = None
+        else:
+            self._list_widget = None
+            self._scroll = QScrollArea()
+            self._scroll.setWidgetResizable(True)
+            self._scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+            self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+            self._grid_host = QWidget()
+            self._grid_host.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+            self._grid = QGridLayout(self._grid_host)
+            self._grid.setContentsMargins(0, 12, 0, 8)
+            self._grid.setSpacing(TILE_SPACING)
+            self._grid.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+
+            self._scroll.setWidget(self._grid_host)
+            self._scroll.viewport().installEventFilter(self)
+            outer.addWidget(self._scroll, stretch=1)
 
     def set_use_api(self, use_api: bool) -> None:
         self._use_api = use_api
 
-    def set_apps(self, apps: list[dict[str, Any]], *, use_api: bool | None = None) -> None:
+    def set_apps(
+        self,
+        apps: list[dict[str, Any]],
+        *,
+        use_api: bool | None = None,
+        reload_covers: bool = False,
+    ) -> None:
         if use_api is not None:
             self._use_api = use_api
         self._apps = [app for app in apps if isinstance(app, dict)]
-        signature = tuple(
-            f"{app.get('name', '')}|{app.get('image-path', '')}" for app in self._apps
-        )
-        if signature != self._last_cover_signature:
+        signature = self._cover_signature()
+        if reload_covers or signature != self._last_cover_signature:
             self._cover_cache.clear()
             self._pending_covers.clear()
             self._last_cover_signature = signature
@@ -208,9 +236,74 @@ class GamesLibraryWidget(QWidget):
             local = resolve_cover_path(str(disk_app.get("image-path", "") or ""))
             if local:
                 self._disk_cover_by_name[name] = local
-        self._rebuild_grid()
+        self._rebuild()
         self._load_covers()
-        self._schedule_layout_refresh()
+        if self._layout_mode == "grid":
+            self._schedule_layout_refresh()
+
+    def _cover_signature(self) -> tuple[str, ...]:
+        parts: list[str] = []
+        for app in self._apps:
+            name = str(app.get("name", "") or "")
+            image_path = str(app.get("image-path", "") or "")
+            mtime = ""
+            local = resolve_cover_path(image_path)
+            if local and local.is_file():
+                try:
+                    mtime = str(local.stat().st_mtime_ns)
+                except OSError:
+                    mtime = ""
+            parts.append(f"{name}|{image_path}|{mtime}")
+        return tuple(parts)
+
+    def _placeholder_icon(self, letter: str) -> QIcon:
+        pixmap = _rounded_pixmap(
+            _placeholder_pixmap(letter, LIST_ICON_WIDTH, LIST_ICON_HEIGHT),
+            radius=6,
+        )
+        return QIcon(pixmap)
+
+    def _cover_icon(self, pixmap: QPixmap) -> QIcon:
+        fitted = _fit_cover(pixmap, LIST_ICON_WIDTH, LIST_ICON_HEIGHT)
+        return QIcon(_rounded_pixmap(fitted, radius=6))
+
+    def _rebuild(self) -> None:
+        if self._layout_mode == "list":
+            self._rebuild_list()
+        else:
+            self._rebuild_grid()
+
+    def _rebuild_list(self) -> None:
+        if self._list_widget is None:
+            return
+
+        self._list_widget.clear()
+        self._list_items.clear()
+
+        if not self._apps:
+            self._empty_label.setText(
+                "Nenhum jogo encontrado. Sincronize os jogos Steam ou ligue o Sunshine."
+            )
+            self._empty_label.show()
+            self._list_widget.hide()
+            return
+
+        self._empty_label.hide()
+        self._list_widget.show()
+
+        for index, app in enumerate(self._apps):
+            name = str(app.get("name", "App"))
+            item = QListWidgetItem(name)
+            item.setSizeHint(QSize(0, LIST_ROW_HEIGHT))
+            item.setToolTip(name)
+
+            letter = name.strip()[:1].upper() if name.strip() else "?"
+            item.setIcon(self._placeholder_icon(letter))
+            if index in self._cover_cache:
+                item.setIcon(self._cover_icon(self._cover_cache[index]))
+
+            self._list_widget.addItem(item)
+            self._list_items[index] = item
 
     def _available_width(self) -> int:
         viewport_w = self._scroll.viewport().width()
@@ -266,7 +359,9 @@ class GamesLibraryWidget(QWidget):
 
     def eventFilter(self, obj, event) -> bool:  # noqa: N802
         if (
-            obj is self._scroll.viewport()
+            self._layout_mode == "grid"
+            and self._scroll is not None
+            and obj is self._scroll.viewport()
             and event.type() == QEvent.Type.Resize
             and self._apps
             and self._tiles
@@ -356,14 +451,13 @@ class GamesLibraryWidget(QWidget):
 
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)
-        if self._apps:
+        if self._layout_mode == "grid" and self._apps:
             self._schedule_layout_refresh()
 
     def _load_covers(self) -> None:
         for index, app in enumerate(self._apps):
             if index in self._cover_cache:
-                if index in self._tiles:
-                    self._tiles[index].set_cover(self._cover_cache[index])
+                self._store_cover(index, self._cover_cache[index])
                 continue
             if index in self._pending_covers:
                 continue
@@ -391,7 +485,11 @@ class GamesLibraryWidget(QWidget):
 
     def _store_cover(self, index: int, pixmap: QPixmap) -> None:
         self._cover_cache[index] = pixmap
-        if index in self._tiles:
+        if self._layout_mode == "list":
+            item = self._list_items.get(index)
+            if item is not None:
+                item.setIcon(self._cover_icon(pixmap))
+        elif index in self._tiles:
             self._tiles[index].set_cover(pixmap)
 
     def _on_cover_loaded(self, index: int, data: bytes) -> None:

@@ -50,6 +50,7 @@ class SunshineService(QObject):
         self._base_url = "https://localhost:47990"
         self._client = SunshineApiClient(self._base_url)
         self._workers: list[_ApiWorker] = []
+        self._pending_reload_covers = False
         self._load_saved_credentials()
 
     def _load_saved_credentials(self) -> None:
@@ -152,8 +153,14 @@ class SunshineService(QObject):
     def unpair_all_clients(self) -> None:
         self._run("unpair_all", self._client.unpair_all_clients)
 
-    def fetch_apps(self) -> None:
+    def fetch_apps(self, *, reload_covers: bool = False) -> None:
+        self._pending_reload_covers = reload_covers
         self._run("fetch_apps", self._client.list_apps)
+
+    def consume_reload_covers(self) -> bool:
+        pending = self._pending_reload_covers
+        self._pending_reload_covers = False
+        return pending
 
     def get_cover_sync(self, index: int) -> bytes | None:
         return self._client.get_cover(index)

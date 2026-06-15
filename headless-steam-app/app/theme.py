@@ -44,6 +44,16 @@ QLabel#Muted {
     font-size: 13px;
 }
 
+QLabel#FunnelReqOk {
+    color: #3dd68c;
+    font-size: 13px;
+}
+
+QLabel#FunnelReqMissing {
+    color: #f5a623;
+    font-size: 13px;
+}
+
 QLabel#ActivityTitle {
     font-weight: 600;
     color: #e8eaed;
@@ -397,6 +407,16 @@ QListWidget {
     border: 1px solid #2d333b;
     border-radius: 8px;
     padding: 4px;
+}
+
+QListWidget#GamesList::item {
+    color: #e8eaed;
+    padding: 4px 8px;
+    border-radius: 6px;
+}
+
+QListWidget#GamesList::item:hover {
+    background-color: #252b33;
 }
 
 QScrollBar:vertical {

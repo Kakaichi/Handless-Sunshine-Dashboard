@@ -304,7 +304,7 @@ function Update-SteamGames {
     $logPath = Join-Path $script:HeadlessSteamAppRoot "sync-games.log.json"
 
     $env:HEADLESS_STEAM_APP_ROOT = $script:HeadlessSteamAppRoot
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $syncScript
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $syncScript -RefreshCovers
     if ($LASTEXITCODE -ne 0) {
         if (Test-Path -LiteralPath $logPath) {
             throw "Falha ao sincronizar jogos. Consulte o log: $logPath"

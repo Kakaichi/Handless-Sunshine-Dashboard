@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+from app.widgets import NoWheelComboBox
 from PySide6.QtWidgets import (
     QCheckBox,
-    QComboBox,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
@@ -41,7 +41,7 @@ class MoonlightEditUserDialog(QDialog):
 
         self._name = QLineEdit(user_name)
         self._name.setReadOnly(True)
-        self._role = QComboBox()
+        self._role = NoWheelComboBox()
         for label, role_id in roles:
             self._role.addItem(label, role_id)
         if current_role_id:

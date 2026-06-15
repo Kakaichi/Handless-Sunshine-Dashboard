@@ -197,11 +197,12 @@ function Get-HeadlessSteamStatus {
     $tsSvc = Get-Service -Name $script:HeadlessSteamTailscaleService -ErrorAction SilentlyContinue
     if ($tsSvc -and $tsSvc.Status -eq "Running") {
         $tailscaleRunning = $true
-        if (Test-Path $script:HeadlessSteamTailscaleExe) {
-            $tailscaleIp = & $script:HeadlessSteamTailscaleExe ip -4 2>$null | Select-Object -First 1
-            if ($tailscaleIp) {
-                $tailscaleConnected = $true
-            }
+        $tailscaleIp = Get-HeadlessSteamTailscaleIpv4Fast
+        if (-not $tailscaleIp) {
+            $tailscaleIp = Get-HeadlessSteamTailscaleIpv4 -TimeoutSeconds 4
+        }
+        if ($tailscaleIp) {
+            $tailscaleConnected = $true
         }
     }
 
@@ -212,6 +213,22 @@ function Get-HeadlessSteamStatus {
     $tailscaleFunnelAllowed = $false
     $moonlightFunnelUrl = $null
     $moonlightFunnelActive = $false
+    $tailscaleFunnelAclOk = $false
+    $tailscaleMagicDnsOk = $false
+    $tailscaleHttpsOk = $false
+    $tailscaleFunnelRequirementsMet = $false
+    $tailscaleFunnelDnsSetupUrl = (Get-HeadlessSteamTailscaleFunnelDnsSetupUrl)
+
+    if ($tailscaleRunning -and -not $Quick) {
+        $funnelReqs = Get-HeadlessSteamTailscaleFunnelRequirements
+        if ($funnelReqs.Checked) {
+            $tailscaleFunnelAclOk = [bool]$funnelReqs.AclFunnel
+            $tailscaleMagicDnsOk = [bool]$funnelReqs.MagicDns
+            $tailscaleHttpsOk = [bool]$funnelReqs.HttpsCerts
+            $tailscaleFunnelRequirementsMet = [bool]$funnelReqs.AllMet
+        }
+    }
+
     if ($moonlightFunnelEnabled) {
         if ($Quick) {
             $funnelQuick = Get-HeadlessSteamTailscaleFunnelQuickStatus
@@ -236,9 +253,11 @@ function Get-HeadlessSteamStatus {
     if ($Quick) {
         $sunshineAccountState = Get-HeadlessSteamSunshineAccountStateQuick
         $sunshineNeedsSetup = ($sunshineAccountState -eq "no_password")
+        $lanIp = $null
     } else {
-        $sunshineNeedsSetup = Test-HeadlessSteamSunshineNeedsSetup -SunshineRunning:$sunshineRunning
-        $sunshineAccountState = Get-HeadlessSteamSunshineAccountState -SunshineRunning:$sunshineRunning
+        $sunshineAccountState = Get-HeadlessSteamSunshineAccountStateQuick
+        $sunshineNeedsSetup = ($sunshineAccountState -eq "no_password")
+        $lanIp = Get-HeadlessSteamLanIPv4
     }
     $sunshineUsername = Get-HeadlessSteamSunshineUsername
 
@@ -249,7 +268,7 @@ function Get-HeadlessSteamStatus {
         TailscaleIp        = $tailscaleIp
         MoonlightRunning   = $moonlightRunning
         GamepadMode        = $gamepadMode
-        LanIp              = (Get-HeadlessSteamLanIPv4)
+        LanIp              = $lanIp
         SunshineWebPort    = $script:HeadlessSteamSunshineWebPort
         SunshinePanelUrl   = "https://localhost:$($script:HeadlessSteamSunshineWebPort)"
         SunshineNeedsSetup = $sunshineNeedsSetup
@@ -264,6 +283,11 @@ function Get-HeadlessSteamStatus {
         TailscaleFunnelAllowed = $tailscaleFunnelAllowed
         TailscaleFunnelSetupUrl = (Get-HeadlessSteamTailscaleFunnelSetupUrl)
         TailscaleFunnelAclSetupUrl = (Get-HeadlessSteamTailscaleFunnelAclSetupUrl)
+        TailscaleFunnelAclOk = $tailscaleFunnelAclOk
+        TailscaleMagicDnsOk = $tailscaleMagicDnsOk
+        TailscaleHttpsOk = $tailscaleHttpsOk
+        TailscaleFunnelRequirementsMet = $tailscaleFunnelRequirementsMet
+        TailscaleFunnelDnsSetupUrl = $tailscaleFunnelDnsSetupUrl
     }
 }
 

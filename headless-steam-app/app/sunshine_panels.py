@@ -199,8 +199,8 @@ class SunshinePage(QWidget):
         hint.setAutoFillBackground(False)
         self._apps_card.body.addWidget(hint)
 
-        self._apps_library = GamesLibraryWidget(self._service)
-        self._apps_library.setMinimumHeight(220)
+        self._apps_library = GamesLibraryWidget(self._service, layout_mode="list")
+        self._apps_library.setMinimumHeight(280)
         self._apps_card.body.addWidget(self._apps_library)
 
         row = QHBoxLayout()
