@@ -194,13 +194,24 @@ function Get-HeadlessSteamStatus {
     $tailscaleRunning = $false
     $tailscaleConnected = $false
     $tailscaleIp = $null
-    $tsSvc = Get-Service -Name $script:HeadlessSteamTailscaleService -ErrorAction SilentlyContinue
-    if ($tsSvc -and $tsSvc.Status -eq "Running") {
-        $tailscaleRunning = $true
+    $tailscaleHealth = $null
+    $tailscaleNeedsLogin = $false
+    $tailscaleIsStarting = $false
+    $tailscaleConn = Get-HeadlessSteamTailscaleConnectionState
+    $tailscaleRunning = [bool]$tailscaleConn.ServiceRunning -and (
+        $tailscaleConn.Connected -or $tailscaleConn.IsStarting -or $tailscaleConn.NeedsLogin -or
+        ($tailscaleConn.BackendState -match '(?i)Running|Starting')
+    )
+    if (-not $tailscaleRunning) {
+        $tailscaleRunning = Test-HeadlessSteamTailscaleVpnActive
+    }
+    $tailscaleIp = $tailscaleConn.Ip
+    $tailscaleConnected = [bool]$tailscaleConn.Connected
+    $tailscaleHealth = $tailscaleConn.HealthMessage
+    $tailscaleNeedsLogin = [bool]$tailscaleConn.NeedsLogin
+    $tailscaleIsStarting = [bool]$tailscaleConn.IsStarting
+    if ($tailscaleRunning -and -not $tailscaleIp) {
         $tailscaleIp = Get-HeadlessSteamTailscaleIpv4Fast
-        if (-not $tailscaleIp) {
-            $tailscaleIp = Get-HeadlessSteamTailscaleIpv4 -TimeoutSeconds 4
-        }
         if ($tailscaleIp) {
             $tailscaleConnected = $true
         }
@@ -266,6 +277,9 @@ function Get-HeadlessSteamStatus {
         TailscaleRunning   = $tailscaleRunning
         TailscaleConnected = $tailscaleConnected
         TailscaleIp        = $tailscaleIp
+        TailscaleHealth    = $tailscaleHealth
+        TailscaleNeedsLogin = $tailscaleNeedsLogin
+        TailscaleIsStarting = $tailscaleIsStarting
         MoonlightRunning   = $moonlightRunning
         GamepadMode        = $gamepadMode
         LanIp              = $lanIp

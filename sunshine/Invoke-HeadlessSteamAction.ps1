@@ -114,24 +114,6 @@ function Start-TailscaleService {
         throw "Tailscale nao instalado."
     }
 
-    $needsLogin = $false
-    $authUrl = ""
-    $statusResult = Invoke-HeadlessSteamTailscaleCommand -ArgumentList @("status", "--json") -TimeoutSeconds 8
-    if ($statusResult.Output) {
-        $status = ConvertFrom-HeadlessSteamTailscaleJson -Text $statusResult.Output
-        if ($status) {
-            $authUrl = [string]$status.AuthURL
-            if ($status.BackendState -match '(?i)NeedsLogin') {
-                $needsLogin = $true
-            }
-            foreach ($line in @($status.Health)) {
-                if ([string]$line -match '(?i)logged out|log in|login') {
-                    $needsLogin = $true
-                }
-            }
-        }
-    }
-
     $up = Invoke-HeadlessSteamTailscaleCommand -ArgumentList @("up", "--timeout=30s") -TimeoutSeconds 35
     if ($up.TimedOut) {
         Write-ActionLog "AVISO: tailscale up expirou; verifique login na bandeja do Tailscale."
@@ -139,15 +121,34 @@ function Start-TailscaleService {
         Write-ActionLog "AVISO: tailscale up: $($up.Error.Trim())"
     }
 
-    if ($needsLogin) {
-        $loginUrl = if ($authUrl) { $authUrl } else { "https://login.tailscale.com/admin/machines" }
-        Write-ActionLog "TAILSCALE_LOGIN_REQUIRED:$loginUrl"
-        Write-ActionLog "AVISO: Tailscale sem perfil/login. Abra o app na bandeja e entre na conta. Nao desligue durante o login."
+    Start-Sleep -Seconds 2
+    $conn = Get-HeadlessSteamTailscaleConnectionState
+
+    if (-not $conn.Connected) {
+        if ($conn.NeedsLogin) {
+            $loginUrl = if ($conn.AuthUrl) { $conn.AuthUrl } else { "https://login.tailscale.com/admin/machines" }
+            Write-ActionLog "TAILSCALE_LOGIN_REQUIRED:$loginUrl"
+            Write-ActionLog "AVISO: Tailscale precisa de login. Abrindo app na bandeja — entre na conta e aguarde o IP 100.x."
+        } elseif ($conn.IsStarting) {
+            Write-ActionLog "AVISO: Tailscale ainda conectando. Abrindo app na bandeja para concluir."
+        } else {
+            Write-ActionLog "AVISO: Tailscale sem IP. Abrindo app na bandeja."
+        }
+
+        if (Start-HeadlessSteamTailscaleGui) {
+            Write-ActionLog "TAILSCALE_GUI_OPENED:"
+        } else {
+            Write-ActionLog "AVISO: Nao foi possivel abrir tailscale-ipn.exe. Abra o Tailscale manualmente na bandeja."
+        }
     }
 
     $svc = Get-Service -Name $tailscaleService -ErrorAction SilentlyContinue
     if ($svc -and $svc.Status -eq "Running") {
-        Write-ActionLog "Tailscale iniciado."
+        if ($conn.Connected) {
+            Write-ActionLog "Tailscale conectado ($($conn.Ip))."
+        } else {
+            Write-ActionLog "Tailscale iniciado (aguardando conexao)."
+        }
         return
     }
     throw "ERRO ao iniciar Tailscale."

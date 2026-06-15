@@ -151,6 +151,142 @@ function ConvertFrom-HeadlessSteamTailscaleJson {
     }
 }
 
+function Get-HeadlessSteamTailscaleConnectionState {
+    $result = [ordered]@{
+        ServiceRunning = $false
+        Connected      = $false
+        Ip             = $null
+        BackendState   = ""
+        NeedsLogin     = $false
+        IsStarting     = $false
+        HealthMessage  = ""
+        AuthUrl        = ""
+    }
+
+    $tsSvc = Get-Service -Name "Tailscale" -ErrorAction SilentlyContinue
+    if ($tsSvc -and $tsSvc.Status -eq "Running") {
+        $result.ServiceRunning = $true
+    }
+
+    $ip = Get-HeadlessSteamTailscaleIpv4Fast
+    if ($ip) {
+        $result.Connected = $true
+        $result.Ip = $ip
+        return [pscustomobject]$result
+    }
+
+    if (-not $result.ServiceRunning -or -not (Get-HeadlessSteamTailscaleExe)) {
+        return [pscustomobject]$result
+    }
+
+    $statusResult = Invoke-HeadlessSteamTailscaleCommand -ArgumentList @("status", "--json") -TimeoutSeconds 6
+    if (-not $statusResult.Output) {
+        $result.IsStarting = $true
+        $result.HealthMessage = "Tailscale nao respondeu."
+        return [pscustomobject]$result
+    }
+
+    $status = ConvertFrom-HeadlessSteamTailscaleJson -Text $statusResult.Output
+    if (-not $status) {
+        $result.IsStarting = $true
+        return [pscustomobject]$result
+    }
+
+    $result.BackendState = [string]$status.BackendState
+    $result.AuthUrl = [string]$status.AuthURL
+
+    foreach ($line in @($status.Health)) {
+        $health = [string]$line
+        if (-not $health) { continue }
+        if (-not $result.HealthMessage) {
+            $result.HealthMessage = $health
+        }
+        if ($health -match '(?i)logged out|log in|login') {
+            $result.NeedsLogin = $true
+        }
+        if ($health -match '(?i)starting|please wait') {
+            $result.IsStarting = $true
+        }
+        if ($health -match '(?i)Tailscale is stopped') {
+            $result.NeedsLogin = $false
+            $result.IsStarting = $false
+        }
+    }
+
+    if ($result.BackendState -match '(?i)NeedsLogin') {
+        $result.NeedsLogin = $true
+    }
+
+    if ($status.TailscaleIPs -and @($status.TailscaleIPs).Count -gt 0) {
+        $result.Connected = $true
+        $result.Ip = [string]$status.TailscaleIPs[0]
+    }
+
+    return [pscustomobject]$result
+}
+
+function Start-HeadlessSteamTailscaleGui {
+    $ipnExe = Join-Path (Split-Path -Parent $script:HeadlessSteamTailscaleExe) "tailscale-ipn.exe"
+    if (-not (Test-Path -LiteralPath $ipnExe)) {
+        return $false
+    }
+
+    try {
+        Start-Process -FilePath "cmd.exe" `
+            -ArgumentList @('/c', "start `"Tailscale`" `"$ipnExe`"") `
+            -WindowStyle Hidden `
+            -ErrorAction Stop | Out-Null
+        return $true
+    } catch {
+        return $false
+    }
+}
+
+function Test-HeadlessSteamTailscaleVpnActive {
+    $tsSvc = Get-Service -Name "Tailscale" -ErrorAction SilentlyContinue
+    if (-not $tsSvc -or $tsSvc.Status -ne "Running") {
+        return $false
+    }
+
+    if (Get-HeadlessSteamTailscaleIpv4Fast) {
+        return $true
+    }
+
+    if (-not (Get-HeadlessSteamTailscaleExe)) {
+        return $false
+    }
+
+    $statusResult = Invoke-HeadlessSteamTailscaleCommand -ArgumentList @("status", "--json") -TimeoutSeconds 4
+    if (-not $statusResult.Output) {
+        return $false
+    }
+
+    $status = ConvertFrom-HeadlessSteamTailscaleJson -Text $statusResult.Output
+    if (-not $status) {
+        return $false
+    }
+
+    foreach ($line in @($status.Health)) {
+        $health = [string]$line
+        if ($health -match '(?i)Tailscale is stopped|logged out') {
+            return $false
+        }
+        if ($health -match '(?i)starting|please wait') {
+            return $true
+        }
+    }
+
+    $backend = [string]$status.BackendState
+    if ($backend -eq "Running") {
+        return $true
+    }
+    if ($backend -match '(?i)Starting') {
+        return $true
+    }
+
+    return $false
+}
+
 function Test-HeadlessSteamTailscaleFunnelStatusTextIsPublic {
     param([string]$Text)
 

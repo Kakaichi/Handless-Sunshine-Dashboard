@@ -19,6 +19,9 @@ _QUICK_STATUS_FIELDS = frozenset({
     "tailscale_running",
     "tailscale_connected",
     "tailscale_ip",
+    "tailscale_health",
+    "tailscale_needs_login",
+    "tailscale_is_starting",
     "moonlight_running",
     "moonlight_funnel_enabled",
     "moonlight_skip_login_enabled",
@@ -32,6 +35,9 @@ class HeadlessSteamStatus:
     tailscale_running: bool = False
     tailscale_connected: bool = False
     tailscale_ip: str | None = None
+    tailscale_health: str | None = None
+    tailscale_needs_login: bool = False
+    tailscale_is_starting: bool = False
     moonlight_running: bool = False
     moonlight_funnel_enabled: bool = False
     moonlight_funnel_active: bool = False
@@ -62,6 +68,9 @@ class HeadlessSteamStatus:
             tailscale_running=bool(data.get("TailscaleRunning")),
             tailscale_connected=bool(data.get("TailscaleConnected")),
             tailscale_ip=data.get("TailscaleIp") or None,
+            tailscale_health=data.get("TailscaleHealth") or None,
+            tailscale_needs_login=bool(data.get("TailscaleNeedsLogin")),
+            tailscale_is_starting=bool(data.get("TailscaleIsStarting")),
             moonlight_running=bool(data.get("MoonlightRunning")),
             moonlight_funnel_enabled=bool(data.get("MoonlightFunnelEnabled")),
             moonlight_funnel_active=bool(data.get("MoonlightFunnelActive")),
@@ -186,17 +195,109 @@ def _query_tailscale_ipv4_fast() -> str | None:
     return ip or _query_tailscale_ipv4_cli()
 
 
+def _tailscale_vpn_active() -> bool:
+    if not _windows_service_running("Tailscale"):
+        return False
+    if _query_tailscale_ipv4_fast():
+        return True
+    if not os.path.isfile(_TAILSCALE_EXE):
+        return False
+    try:
+        completed = subprocess.run(
+            [_TAILSCALE_EXE, "status"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=3,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+    text = f"{completed.stdout or ''}\n{completed.stderr or ''}".lower()
+    if "tailscale is stopped" in text or "logged out" in text:
+        return False
+    if "starting" in text or "please wait" in text:
+        return True
+    return completed.returncode == 0 and "100." in text
+
+
+def _query_tailscale_connection_state() -> dict[str, object]:
+    result: dict[str, object] = {
+        "needs_login": False,
+        "is_starting": False,
+        "health": None,
+    }
+    if not os.path.isfile(_TAILSCALE_EXE):
+        return result
+
+    try:
+        completed = subprocess.run(
+            [_TAILSCALE_EXE, "status", "--json"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=4,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        result["is_starting"] = True
+        return result
+
+    raw = (completed.stdout or "").strip()
+    if not raw:
+        result["is_starting"] = True
+        return result
+
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        result["is_starting"] = True
+        return result
+
+    backend = str(data.get("BackendState") or "")
+    if re.search(r"needslogin", backend, re.I):
+        result["needs_login"] = True
+
+    for line in data.get("Health") or []:
+        health = str(line)
+        if not health:
+            continue
+        if not result["health"]:
+            result["health"] = health
+        lower = health.lower()
+        if "logged out" in lower or "log in" in lower or "login" in lower:
+            result["needs_login"] = True
+        if "starting" in lower or "please wait" in lower:
+            result["is_starting"] = True
+
+    return result
+
+
 def fetch_quick_status() -> HeadlessSteamStatus:
     settings = load_settings()
     sunshine_running = _windows_service_running("SunshineService")
-    tailscale_running = _windows_service_running("Tailscale")
+    tailscale_running = _tailscale_vpn_active()
     tailscale_ip = _query_tailscale_ipv4_fast() if tailscale_running else None
+    tailscale_needs_login = False
+    tailscale_is_starting = False
+    tailscale_health: str | None = None
+    if tailscale_running and not tailscale_ip:
+        hints = _query_tailscale_connection_state()
+        tailscale_needs_login = bool(hints["needs_login"])
+        tailscale_is_starting = bool(hints["is_starting"])
+        tailscale_health = hints["health"]  # type: ignore[assignment]
 
     return HeadlessSteamStatus(
         sunshine_running=sunshine_running,
         tailscale_running=tailscale_running,
         tailscale_connected=bool(tailscale_ip),
         tailscale_ip=tailscale_ip,
+        tailscale_health=tailscale_health,
+        tailscale_needs_login=tailscale_needs_login,
+        tailscale_is_starting=tailscale_is_starting,
         moonlight_running=_process_image_running("web-server.exe"),
         moonlight_funnel_enabled=settings.public_funnel_enabled,
         moonlight_skip_login_enabled=settings.skip_login_enabled,
@@ -343,10 +444,6 @@ class StatusService(QObject):
             if status.tailscale_ip:
                 updates["tailscale_connected"] = True
                 updates["moonlight_tailscale_url"] = f"http://{status.tailscale_ip}:8080"
-            elif previous.tailscale_ip:
-                updates["tailscale_ip"] = previous.tailscale_ip
-                updates["tailscale_connected"] = True
-                updates["moonlight_tailscale_url"] = previous.moonlight_tailscale_url
             else:
                 updates["tailscale_connected"] = False
                 updates["tailscale_ip"] = None

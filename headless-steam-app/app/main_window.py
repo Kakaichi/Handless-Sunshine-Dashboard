@@ -948,18 +948,25 @@ class MainWindow(QMainWindow):
         if status.tailscale_connected:
             t_text, t_color = "Conectado", "#3dd68c"
             t_detail = status.tailscale_ip or ""
+        elif status.tailscale_needs_login:
+            t_text, t_color = "Precisa login", "#f5a623"
+            t_detail = "Abra o Tailscale na bandeja e entre na conta"
+        elif status.tailscale_is_starting:
+            t_text, t_color = "Conectando...", "#f5a623"
+            t_detail = status.tailscale_health or "Aguarde o IP 100.x"
         elif status.tailscale_running:
-            t_text, t_color = "Aguardando IP", "#f5a623"
-            t_detail = "Servico ativo, VPN pendente"
+            t_text, t_color = "Sem IP", "#f5a623"
+            t_detail = "Abra o Tailscale na bandeja para concluir"
         else:
             t_text, t_color = "Inativo", "#8b929a"
             t_detail = ""
         self._tailscale_card.set_state(t_text, t_color, t_detail)
         self._tailscale_card.set_running(status.tailscale_running)
+        health_line = f"\nEstado: {status.tailscale_health}" if status.tailscale_health else ""
         self._tailscale_detail.setText(
             f"Servico: {'ativo' if status.tailscale_running else 'inativo'}\n"
             f"VPN: {'conectada' if status.tailscale_connected else 'desconectada'}\n"
-            f"IP Tailscale: {status.tailscale_ip or '—'}"
+            f"IP Tailscale: {status.tailscale_ip or '—'}{health_line}"
         )
         self._update_tailscale_funnel_requirements(status)
 
@@ -1061,6 +1068,25 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(2500, lambda: self._status_service.refresh(full=True))
 
     def _on_line_output(self, line: str) -> None:
+        if line.startswith("TAILSCALE_LOGIN_REQUIRED:"):
+            url = line.split(":", 1)[1].strip() or "https://login.tailscale.com/admin/machines"
+            QDesktopServices.openUrl(QUrl(url))
+            self._show_activity()
+            self._activity_message.setText(
+                "Tailscale precisa de login. Abrindo pagina de autenticacao — "
+                "conclua no app da bandeja e aguarde o IP 100.x."
+            )
+            self._activity_message.show()
+            return
+
+        if line.startswith("TAILSCALE_GUI_OPENED:"):
+            self._show_activity()
+            self._activity_message.setText(
+                "App Tailscale aberto na bandeja. Entre na conta ou aguarde a conexao."
+            )
+            self._activity_message.show()
+            return
+
         if line.startswith("FUNNEL_ACL_REQUIRED:"):
             url = line.split(":", 1)[1].strip()
             if url:
