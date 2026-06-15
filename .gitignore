@@ -1,0 +1,46 @@
+# Python / PyInstaller
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+*.egg-info/
+.eggs/
+dist/
+build/
+*.spec.bak
+
+# Headless Steam app build output
+headless-steam-app/dist/
+headless-steam-app/build/
+headless-steam-app/release/
+headless-steam-app/dist-build-*/
+
+# IDE / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Logs and temp
+*.log
+sync-games.log.json
+moonlight-web.log.json
+*.tmp
+~$*
+
+# User-specific runtime data (never commit)
+moonlight-web/package/server/data.json
+!moonlight-web/package/server/data.json.example
+**/HeadlessSteam/
+sunshine/covers/*.png
+!sunshine/covers/manual/
+!sunshine/covers/manual/**
+
+# Credentials / env
+.env
+.env.*
+*.pem
+*_credentials.json

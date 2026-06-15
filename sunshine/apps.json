@@ -1,0 +1,17 @@
+﻿{
+  "apps": [
+    {
+      "name": "Steam Big Picture",
+      "cmd": "steam://open/bigpicture",
+      "prep-cmd": [
+        {
+          "do": "",
+          "undo": "steam://close/bigpicture"
+        }
+      ],
+      "auto-detach": true,
+      "wait-all": true,
+      "image-path": "steam.png"
+    }
+  ]
+}
