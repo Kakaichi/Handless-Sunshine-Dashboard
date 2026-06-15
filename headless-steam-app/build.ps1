@@ -190,7 +190,7 @@ try {
     Write-Host "moonlight-web copiado para dist."
 
     $shortcutScript = Join-Path $sunshineDest "Install-HeadlessSteamShortcut.ps1"
-    if (Test-Path $shortcutScript) {
+    if ((Test-Path $shortcutScript) -and -not $env:HEADLESS_STEAM_CI) {
         Write-Host ""
         Write-Host "Atualizando atalho na area de trabalho..."
         & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $shortcutScript

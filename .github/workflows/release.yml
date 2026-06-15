@@ -1,0 +1,75 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Versao semver (ex.: 1.1.1). Vazio = headless-steam-app/VERSION"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: headless-steam-app/requirements.txt
+
+      - name: Resolve release version
+        id: meta
+        shell: pwsh
+        run: |
+          $inputVersion = "${{ github.event.inputs.version }}".Trim()
+          if ("${{ github.ref_type }}" -eq "tag") {
+            $version = "${{ github.ref_name }}".TrimStart("v")
+          } elseif ($inputVersion) {
+            $version = $inputVersion.TrimStart("v")
+          } else {
+            $version = (Get-Content "headless-steam-app/VERSION" -Raw).Trim()
+          }
+
+          if ($version -notmatch '^\d+\.\d+\.\d+$') {
+            throw "Versao invalida: $version"
+          }
+
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=v$version" >> $env:GITHUB_OUTPUT
+          "asset=Handless-Sunshine-Dashboard-$version-win64.zip" >> $env:GITHUB_OUTPUT
+          Write-Host "Release version: $version"
+
+      - name: Build Windows app
+        shell: pwsh
+        env:
+          HEADLESS_STEAM_CI: "1"
+        run: |
+          Set-Location headless-steam-app
+          ./build.ps1
+
+      - name: Package release zip
+        id: package
+        shell: pwsh
+        run: |
+          $zipPath = ./headless-steam-app/package-release.ps1 -Version "${{ steps.meta.outputs.version }}"
+          "zip_path=$zipPath" >> $env:GITHUB_OUTPUT
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: ${{ steps.meta.outputs.tag }}
+          files: ${{ steps.package.outputs.zip_path }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
