@@ -417,17 +417,15 @@ class MoonlightService(QObject):
         worker = _MoonlightWorker(fn, self)
         self._workers.append(worker)
 
-        def _cleanup() -> None:
-            if worker in self._workers:
-                self._workers.remove(worker)
-            worker.deleteLater()
+        def _release(w: _MoonlightWorker = worker) -> None:
+            if w in self._workers:
+                self._workers.remove(w)
+            w.deleteLater()
 
         def _ok(result: object) -> None:
-            _cleanup()
             self.operation_finished.emit(op_name, result)
 
         def _err(message: str) -> None:
-            _cleanup()
             if message.startswith("AUTH:"):
                 if notify_auth:
                     self.auth_required.emit()
@@ -438,6 +436,7 @@ class MoonlightService(QObject):
 
         worker.finished_ok.connect(_ok)
         worker.finished_err.connect(_err)
+        worker.finished.connect(_release)
         worker.start()
 
     def warm_saved_session(self) -> None:

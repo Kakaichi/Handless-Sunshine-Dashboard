@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.funnel_requirements import update_funnel_requirements
 from app.moonlight_credential_store import clear_credentials, load_credentials
 from app.moonlight_edit_user_dialog import MoonlightEditUserDialog
 from app.moonlight_login_dialog import MoonlightLoginDialog
@@ -199,17 +200,33 @@ class MoonlightPage(QWidget):
         hint.setAutoFillBackground(False)
         card.body.addWidget(hint)
 
-        prereq = QLabel(
-            "Requisitos no admin Tailscale (todos obrigatorios):\n"
-            "• Policy ACL — nodeAttrs com attr funnel\n"
-            "• DNS — MagicDNS ligado\n"
-            "• DNS — Enable HTTPS ligado (sem HTTPS o link fica em Aguardando URL)\n\n"
+        intro = QLabel(
+            "Requisitos no admin Tailscale (todos obrigatorios). "
             "Apos alterar ACL ou DNS, reinicie o servico Tailscale e clique Salvar e aplicar."
         )
-        prereq.setObjectName("Muted")
-        prereq.setWordWrap(True)
-        prereq.setAutoFillBackground(False)
-        card.body.addWidget(prereq)
+        intro.setObjectName("Muted")
+        intro.setWordWrap(True)
+        intro.setAutoFillBackground(False)
+        card.body.addWidget(intro)
+
+        self._funnel_req_acl = QLabel()
+        self._funnel_req_acl.setAutoFillBackground(False)
+        card.body.addWidget(self._funnel_req_acl)
+
+        self._funnel_req_magic_dns = QLabel()
+        self._funnel_req_magic_dns.setAutoFillBackground(False)
+        card.body.addWidget(self._funnel_req_magic_dns)
+
+        self._funnel_req_https = QLabel()
+        self._funnel_req_https.setAutoFillBackground(False)
+        card.body.addWidget(self._funnel_req_https)
+
+        self._funnel_req_note = QLabel()
+        self._funnel_req_note.setObjectName("Muted")
+        self._funnel_req_note.setWordWrap(True)
+        self._funnel_req_note.setAutoFillBackground(False)
+        self._funnel_req_note.hide()
+        card.body.addWidget(self._funnel_req_note)
 
         links_row = QHBoxLayout()
         links_row.setSpacing(10)
@@ -251,13 +268,15 @@ class MoonlightPage(QWidget):
         self._tailscale_funnel_allowed = status.tailscale_funnel_allowed
         self._funnel_setup_url = status.tailscale_funnel_acl_setup_url
         self._funnel_acl_setup_url = status.tailscale_funnel_acl_setup_url
-        self._funnel_acl_link.set_url(
-            "Abrir policy ACL (nodeAttrs funnel)",
-            self._funnel_acl_setup_url,
-        )
-        self._funnel_dns_link.set_url(
-            "Abrir DNS (MagicDNS + Enable HTTPS)",
-            self._funnel_dns_setup_url,
+        self._funnel_dns_setup_url = status.tailscale_funnel_dns_setup_url
+        update_funnel_requirements(
+            status,
+            acl_label=self._funnel_req_acl,
+            magic_dns_label=self._funnel_req_magic_dns,
+            https_label=self._funnel_req_https,
+            note_label=self._funnel_req_note,
+            acl_link=self._funnel_acl_link,
+            dns_link=self._funnel_dns_link,
         )
         self._ml_local.set_url(status.moonlight_local_url, status.moonlight_local_url)
 

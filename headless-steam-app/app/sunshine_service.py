@@ -78,17 +78,15 @@ class SunshineService(QObject):
         worker = _ApiWorker(fn, self)
         self._workers.append(worker)
 
-        def _cleanup() -> None:
-            if worker in self._workers:
-                self._workers.remove(worker)
-            worker.deleteLater()
+        def _release(w: _ApiWorker = worker) -> None:
+            if w in self._workers:
+                self._workers.remove(w)
+            w.deleteLater()
 
         def _ok(result: object) -> None:
-            _cleanup()
             self.operation_finished.emit(op_name, result)
 
         def _err(message: str) -> None:
-            _cleanup()
             if message.startswith("AUTH:"):
                 self.auth_required.emit()
                 self.operation_failed.emit(op_name, message[5:])
@@ -99,6 +97,7 @@ class SunshineService(QObject):
 
         worker.finished_ok.connect(_ok)
         worker.finished_err.connect(_err)
+        worker.finished.connect(_release)
         worker.start()
 
     def create_credentials(self, username: str, password: str, confirm: str) -> None:

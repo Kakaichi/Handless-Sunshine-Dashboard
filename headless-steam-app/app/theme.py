@@ -140,50 +140,50 @@ QFrame#SurfaceCard {
     border-radius: 12px;
 }
 
-QFrame#SetupBanner {
+QFrame#ToastBanner[kind="setup"] {
     background-color: #2a2418;
     border: 1px solid #4a3f28;
     border-radius: 10px;
 }
 
-QFrame#SetupBanner QLabel {
+QFrame#ToastBanner[kind="setup"] QLabel {
     color: #f0d78c;
     background: transparent;
 }
 
-QFrame#UpdateBanner {
+QFrame#ToastBanner[kind="update"] {
     background-color: #182433;
     border: 1px solid #284a6b;
     border-radius: 10px;
 }
 
-QFrame#UpdateBanner QLabel {
+QFrame#ToastBanner[kind="update"] QLabel {
     color: #9ec8f0;
     background: transparent;
 }
 
-QFrame#ActivityBar {
+QFrame#ToastActivity {
     background-color: #1f2329;
     border: 1px solid #2d333b;
     border-radius: 10px;
 }
 
-QFrame#ActivityBar[status="success"] {
+QFrame#ToastActivity[status="success"] {
     background-color: #152218;
     border-color: #1f4d35;
 }
 
-QFrame#ActivityBar[status="error"] {
+QFrame#ToastActivity[status="error"] {
     background-color: #2a1818;
     border-color: #5c2a2a;
 }
 
-QFrame#ActivityBar[status="running"] {
+QFrame#ToastActivity[status="running"] {
     background-color: #1a2030;
     border-color: #2d3a52;
 }
 
-QFrame#ActivityBar QLabel {
+QFrame#ToastActivity QLabel {
     background: transparent;
 }
 

@@ -397,6 +397,9 @@ class StatusService(QObject):
         self._refresh_pending = False
         self._refresh_pending_full = False
         self._timer.stop()
+        worker = self._worker
+        if worker is not None and worker.isRunning():
+            worker.wait(5000)
 
     @property
     def last_status(self) -> HeadlessSteamStatus | None:
@@ -413,13 +416,18 @@ class StatusService(QObject):
             return
         if full:
             self._refresh_pending_full = True
-            self._status_epoch += 1
         if self._worker is not None and self._worker.isRunning():
             self._refresh_pending = True
             return
         self._start_worker(full=full or self._refresh_pending_full)
 
     def _start_worker(self, *, full: bool = False) -> None:
+        if self._worker is not None and self._worker.isRunning():
+            self._refresh_pending = True
+            if full:
+                self._refresh_pending_full = True
+            return
+
         self._refresh_pending_full = False
         needs_full = full or (self._poll_count > 0 and self._poll_count % 12 == 0)
         quick = not needs_full
@@ -430,7 +438,7 @@ class StatusService(QObject):
             lambda status, is_quick, epoch=worker_epoch: self._on_worker_ok(status, is_quick, epoch)
         )
         worker.finished_err.connect(self._on_worker_err)
-        worker.finished.connect(self._on_worker_finished)
+        worker.finished.connect(lambda w=worker: self._on_worker_finished(w))
         worker.start()
 
     def _merge_quick_status(
@@ -485,14 +493,16 @@ class StatusService(QObject):
             return
         self.error.emit(message)
 
-    def _on_worker_finished(self) -> None:
-        worker = self._worker
-        self._worker = None
-        if worker is not None:
-            worker.deleteLater()
+    def _on_worker_finished(self, worker: _StatusWorker) -> None:
+        if self._worker is worker:
+            self._worker = None
+        worker.deleteLater()
 
         if self._stopped or not self._refresh_pending:
             self._refresh_pending = False
+            return
+
+        if self._worker is not None and self._worker.isRunning():
             return
 
         self._refresh_pending = False

@@ -12,7 +12,6 @@ from pathlib import Path
 from PySide6.QtCore import QPoint, Qt, QTimer, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
-    QFrame,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -21,8 +20,6 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QMenu,
     QDialog,
-    QProgressBar,
-    QPushButton,
     QScrollArea,
     QStackedWidget,
     QVBoxLayout,
@@ -34,6 +31,7 @@ from app.action_runner import ActionRunner
 from app.apps_loader import load_apps_from_disk
 from app.change_password_dialog import ChangePasswordDialog
 from app.credential_store import load_credentials
+from app.funnel_requirements import update_funnel_requirements
 from app.games_library import GamesLibraryWidget
 from app.icons import load_icon
 from app.moonlight_panels import MoonlightPage
@@ -43,6 +41,7 @@ from app.status_service import HeadlessSteamStatus, StatusService
 from app.sunshine_account_page import SunshineAccountPage
 from app.sunshine_panels import SunshinePage
 from app.sunshine_service import SunshineService
+from app.toast import ToastHost
 from app.update_constants import GITHUB_RELEASES_PAGE
 from app.update_service import UpdateInfo, UpdateService, should_auto_check
 from app.widgets import ActionButton, IconToolButton, LinkButton, StatusCard, SurfaceCard
@@ -129,8 +128,6 @@ _NOISE_PATTERNS = (
     re.compile(r"^Sunshine novo:", re.I),
 )
 
-_ACTIVITY_HIDE_MS = 4000
-
 
 def _status_style(running: bool) -> tuple[str, str]:
     if running:
@@ -159,10 +156,6 @@ class MainWindow(QMainWindow):
         self._alternar_was_running = False
         self._pending_update_info: UpdateInfo | None = None
 
-        self._activity_hide_timer = QTimer(self)
-        self._activity_hide_timer.setSingleShot(True)
-        self._activity_hide_timer.timeout.connect(self._set_activity_idle)
-
         central = QWidget()
         self.setCentralWidget(central)
         root = QHBoxLayout(central)
@@ -186,9 +179,6 @@ class MainWindow(QMainWindow):
         root.addWidget(content, stretch=1)
 
         self._build_header(content_layout)
-        self._build_setup_banner(content_layout)
-        self._build_update_banner(content_layout)
-        self._build_activity_bar(content_layout)
 
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
@@ -204,6 +194,13 @@ class MainWindow(QMainWindow):
         self._build_sunshine_page()
         self._build_tailscale_page()
         self._build_moonlight_page()
+
+        self._toast = ToastHost(content)
+        self._toast.setup_open_btn.clicked.connect(self._go_to_sunshine_account)
+        self._toast.update_install_btn.clicked.connect(self._on_install_update_clicked)
+        self._toast.update_release_btn.clicked.connect(self._on_open_update_release)
+        self._toast.update_dismiss_btn.clicked.connect(self._on_dismiss_update)
+        self._toast.raise_overlay()
 
         self._status_service.status_changed.connect(self._on_status)
         self._status_service.error.connect(self._on_status_error)
@@ -279,86 +276,6 @@ class MainWindow(QMainWindow):
 
         row.addLayout(toolbar)
         parent.addLayout(row)
-
-    def _build_setup_banner(self, parent: QVBoxLayout) -> None:
-        self._setup_banner = QFrame()
-        self._setup_banner.setObjectName("SetupBanner")
-        banner_layout = QHBoxLayout(self._setup_banner)
-        banner_layout.setContentsMargins(14, 12, 14, 12)
-
-        self._setup_text = QLabel()
-        self._setup_text.setWordWrap(True)
-        self._setup_text.setAutoFillBackground(False)
-        banner_layout.addWidget(self._setup_text, stretch=1)
-
-        self._setup_open_btn = QPushButton("Ir para Conta Sunshine")
-        self._setup_open_btn.setObjectName("PrimaryButton")
-        self._setup_open_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._setup_open_btn.clicked.connect(self._go_to_sunshine_account)
-        banner_layout.addWidget(self._setup_open_btn)
-
-        self._setup_banner.hide()
-        parent.addWidget(self._setup_banner)
-
-    def _build_update_banner(self, parent: QVBoxLayout) -> None:
-        self._update_banner = QFrame()
-        self._update_banner.setObjectName("UpdateBanner")
-        banner_layout = QHBoxLayout(self._update_banner)
-        banner_layout.setContentsMargins(14, 12, 14, 12)
-
-        self._update_text = QLabel()
-        self._update_text.setWordWrap(True)
-        self._update_text.setAutoFillBackground(False)
-        banner_layout.addWidget(self._update_text, stretch=1)
-
-        self._update_install_btn = QPushButton("Baixar e atualizar")
-        self._update_install_btn.setObjectName("PrimaryButton")
-        self._update_install_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._update_install_btn.clicked.connect(self._on_install_update_clicked)
-        banner_layout.addWidget(self._update_install_btn)
-
-        self._update_release_btn = QPushButton("Ver no GitHub")
-        self._update_release_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._update_release_btn.clicked.connect(self._on_open_update_release)
-        banner_layout.addWidget(self._update_release_btn)
-
-        self._update_dismiss_btn = QPushButton("Agora nao")
-        self._update_dismiss_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._update_dismiss_btn.clicked.connect(self._on_dismiss_update)
-        banner_layout.addWidget(self._update_dismiss_btn)
-
-        self._update_banner.hide()
-        parent.addWidget(self._update_banner)
-
-    def _build_activity_bar(self, parent: QVBoxLayout) -> None:
-        self._activity = QFrame()
-        self._activity.setObjectName("ActivityBar")
-        self._activity.setProperty("status", "idle")
-        activity_layout = QVBoxLayout(self._activity)
-        activity_layout.setContentsMargins(14, 10, 14, 10)
-        activity_layout.setSpacing(4)
-
-        top = QHBoxLayout()
-        self._activity_title = QLabel("Pronto")
-        self._activity_title.setObjectName("ActivityTitle")
-        self._activity_title.setAutoFillBackground(False)
-        top.addWidget(self._activity_title)
-        top.addStretch()
-        activity_layout.addLayout(top)
-
-        self._activity_message = QLabel("")
-        self._activity_message.setObjectName("Muted")
-        self._activity_message.setWordWrap(True)
-        self._activity_message.setAutoFillBackground(False)
-        self._activity_message.hide()
-        activity_layout.addWidget(self._activity_message)
-
-        self._progress = QProgressBar()
-        self._progress.setTextVisible(False)
-        self._progress.hide()
-        activity_layout.addWidget(self._progress)
-
-        parent.addWidget(self._activity)
 
     def _register_button(self, btn: ActionButton) -> ActionButton:
         btn.clicked.connect(lambda checked=False, a=btn.action: self._run_action(a))
@@ -516,43 +433,15 @@ class MainWindow(QMainWindow):
             self._status_service.refresh(full=True)
 
     def _set_activity_idle(self) -> None:
-        self._activity_hide_timer.stop()
-        self._activity.setProperty("status", "idle")
-        self._activity.style().unpolish(self._activity)
-        self._activity.style().polish(self._activity)
-        self._activity.hide()
-
-    def _show_activity(self) -> None:
-        self._activity_hide_timer.stop()
-        self._activity.show()
-
-    def _schedule_activity_hide(self) -> None:
-        self._activity_hide_timer.start(_ACTIVITY_HIDE_MS)
+        self._toast.set_activity_idle()
 
     def _set_activity_running(self, action: str) -> None:
         label = ACTION_LABELS.get(action, action)
-        self._show_activity()
-        self._activity.setProperty("status", "running")
-        self._activity.style().unpolish(self._activity)
-        self._activity.style().polish(self._activity)
-        self._activity_title.setText(label)
-        self._activity_message.setText("Executando…")
-        self._activity_message.show()
-        self._progress.setRange(0, 0)
-        self._progress.show()
+        self._toast.set_activity_running(label)
 
     def _set_activity_result(self, action: str, success: bool, message: str) -> None:
         label = ACTION_LABELS.get(action, action)
-        status = "success" if success else "error"
-        self._show_activity()
-        self._activity.setProperty("status", status)
-        self._activity.style().unpolish(self._activity)
-        self._activity.style().polish(self._activity)
-        self._activity_title.setText(label)
-        self._activity_message.setText(message)
-        self._activity_message.show()
-        self._progress.hide()
-        self._schedule_activity_hide()
+        self._toast.set_activity_result(label, success, message)
 
     def _is_noise_line(self, line: str) -> bool:
         stripped = line.strip()
@@ -655,14 +544,12 @@ class MainWindow(QMainWindow):
         self._user_menu.popup(pos)
 
     def _check_for_updates_manual(self) -> None:
-        self._set_activity_running("verificar_atualizacoes")
-        self._activity_title.setText("Verificar atualizacoes")
-        self._activity_message.setText("Consultando GitHub...")
+        self._toast.set_activity_running("Verificar atualizacoes", "Consultando GitHub...")
         self._update_service.check(silent=False)
 
     def _on_update_check_finished(self, info: object) -> None:
         if info is None:
-            if self._activity_title.text() == "Verificar atualizacoes":
+            if self._toast.activity_title() == "Verificar atualizacoes":
                 self._set_activity_result("", True, "Voce ja esta na versao mais recente.")
             return
 
@@ -670,16 +557,15 @@ class MainWindow(QMainWindow):
             return
 
         self._pending_update_info = info
-        self._update_text.setText(
+        self._toast.show_update(
             f"Nova versao v{info.version} disponivel. "
             f"Versao atual: v{APP_VERSION}."
         )
-        self._update_banner.show()
-        if self._activity_title.text() == "Verificar atualizacoes":
+        if self._toast.activity_title() == "Verificar atualizacoes":
             self._set_activity_result("", True, f"Atualizacao v{info.version} disponivel.")
 
     def _on_update_check_failed(self, message: str) -> None:
-        if self._activity_title.text() == "Verificar atualizacoes":
+        if self._toast.activity_title() == "Verificar atualizacoes":
             self._set_activity_result("", False, message)
         else:
             self._set_activity_idle()
@@ -688,7 +574,7 @@ class MainWindow(QMainWindow):
         if self._pending_update_info is not None:
             self._update_service.dismiss(self._pending_update_info.version)
         self._pending_update_info = None
-        self._update_banner.hide()
+        self._toast.hide_update()
 
     def _on_open_update_release(self) -> None:
         url = (
@@ -719,26 +605,18 @@ class MainWindow(QMainWindow):
 
         self._busy = True
         self._set_actions_enabled(False)
-        self._show_activity()
-        self._activity.setProperty("status", "running")
-        self._activity.style().unpolish(self._activity)
-        self._activity.style().polish(self._activity)
-        self._activity_title.setText("Baixar atualizacao")
-        self._activity_message.setText("Baixando pacote...")
-        self._activity_message.show()
-        self._progress.setRange(0, 100)
-        self._progress.setValue(0)
-        self._progress.show()
+        self._toast.set_activity_running("Baixar atualizacao", "Baixando pacote...")
+        self._toast.set_progress_value(0)
         self._update_service.download(self._pending_update_info)
 
     def _on_update_download_progress(self, value: int) -> None:
-        self._progress.setValue(max(0, min(100, value)))
-        self._activity_message.setText(f"Baixando pacote... {value}%")
+        self._toast.set_progress_value(value)
+        self._toast.set_activity_message(f"Baixando pacote... {value}%")
 
     def _on_update_download_finished(self, extracted_dir: object) -> None:
         self._busy = False
         self._set_actions_enabled(True)
-        self._progress.hide()
+        self._toast.hide_progress()
 
         if not isinstance(extracted_dir, Path):
             self._set_activity_result("", False, "Atualizacao invalida.")
@@ -761,7 +639,7 @@ class MainWindow(QMainWindow):
     def _on_update_download_failed(self, message: str) -> None:
         self._busy = False
         self._set_actions_enabled(True)
-        self._progress.hide()
+        self._toast.hide_progress()
         self._set_activity_result("", False, message)
 
     def _apply_downloaded_update(self, extracted_dir: Path) -> None:
@@ -850,65 +728,15 @@ class MainWindow(QMainWindow):
         if url:
             QDesktopServices.openUrl(QUrl(url))
 
-    def _set_funnel_requirement_label(
-        self,
-        label: QLabel,
-        title: str,
-        *,
-        available: bool,
-        ok: bool,
-    ) -> None:
-        if not available:
-            label.setText(f"{title} — indisponivel")
-            label.setObjectName("Muted")
-        elif ok:
-            label.setText(f"{title} — OK")
-            label.setObjectName("FunnelReqOk")
-        else:
-            label.setText(f"{title} — pendente")
-            label.setObjectName("FunnelReqMissing")
-        label.style().unpolish(label)
-        label.style().polish(label)
-
     def _update_tailscale_funnel_requirements(self, status: HeadlessSteamStatus) -> None:
-        self._funnel_acl_link.set_url(
-            "Abrir policy ACL (nodeAttrs funnel)",
-            status.tailscale_funnel_acl_setup_url,
-        )
-        self._funnel_dns_link.set_url(
-            "Abrir DNS (MagicDNS + Enable HTTPS)",
-            status.tailscale_funnel_dns_setup_url,
-        )
-
-        if not status.tailscale_running:
-            for label, title in (
-                (self._funnel_req_acl, "Policy ACL — nodeAttrs funnel"),
-                (self._funnel_req_magic_dns, "DNS — MagicDNS"),
-                (self._funnel_req_https, "DNS — Enable HTTPS"),
-            ):
-                self._set_funnel_requirement_label(label, title, available=False, ok=False)
-            self._funnel_req_note.setText("Ligue o Tailscale para verificar.")
-            self._funnel_req_note.show()
-            return
-
-        self._funnel_req_note.hide()
-        self._set_funnel_requirement_label(
-            self._funnel_req_acl,
-            "Policy ACL — nodeAttrs funnel",
-            available=True,
-            ok=status.tailscale_funnel_acl_ok,
-        )
-        self._set_funnel_requirement_label(
-            self._funnel_req_magic_dns,
-            "DNS — MagicDNS",
-            available=True,
-            ok=status.tailscale_magic_dns_ok,
-        )
-        self._set_funnel_requirement_label(
-            self._funnel_req_https,
-            "DNS — Enable HTTPS",
-            available=True,
-            ok=status.tailscale_https_ok,
+        update_funnel_requirements(
+            status,
+            acl_label=self._funnel_req_acl,
+            magic_dns_label=self._funnel_req_magic_dns,
+            https_label=self._funnel_req_https,
+            note_label=self._funnel_req_note,
+            acl_link=self._funnel_acl_link,
+            dns_link=self._funnel_dns_link,
         )
 
     def _open_sunshine_panel(self) -> None:
@@ -984,17 +812,15 @@ class MainWindow(QMainWindow):
         self._rebuild_user_menu()
 
         if status.sunshine_needs_setup:
-            self._setup_text.setText(
+            self._toast.show_setup(
                 "Sunshine sem senha. Crie usuario e senha na aba Conta Sunshine (obrigatorio para Moonlight)."
             )
-            self._setup_banner.show()
         elif status.sunshine_running and not self._sunshine_service.has_saved_credentials():
-            self._setup_text.setText(
+            self._toast.show_setup(
                 "Faca login na aba Conta Sunshine com seu usuario e senha do painel web."
             )
-            self._setup_banner.show()
         else:
-            self._setup_banner.hide()
+            self._toast.hide_setup()
 
         self._moonlight_page.update_status(status)
 
@@ -1071,57 +897,52 @@ class MainWindow(QMainWindow):
         if line.startswith("TAILSCALE_LOGIN_REQUIRED:"):
             url = line.split(":", 1)[1].strip() or "https://login.tailscale.com/admin/machines"
             QDesktopServices.openUrl(QUrl(url))
-            self._show_activity()
-            self._activity_message.setText(
+            self._toast.show_activity()
+            self._toast.set_activity_message(
                 "Tailscale precisa de login. Abrindo pagina de autenticacao — "
                 "conclua no app da bandeja e aguarde o IP 100.x."
             )
-            self._activity_message.show()
             return
 
         if line.startswith("TAILSCALE_GUI_OPENED:"):
-            self._show_activity()
-            self._activity_message.setText(
+            self._toast.show_activity()
+            self._toast.set_activity_message(
                 "App Tailscale aberto na bandeja. Entre na conta ou aguarde a conexao."
             )
-            self._activity_message.show()
             return
 
         if line.startswith("FUNNEL_ACL_REQUIRED:"):
             url = line.split(":", 1)[1].strip()
             if url:
                 QDesktopServices.openUrl(QUrl(url))
-            self._show_activity()
-            self._activity_message.setText(
+            self._toast.show_activity()
+            self._toast.set_activity_message(
                 "ACL sem permissao funnel. Edite login.tailscale.com/admin/acls/file "
                 "e adicione nodeAttrs funnel (nao basta General access rules)."
             )
-            self._activity_message.show()
             return
 
         if line.startswith("FUNNEL_DNS_REQUIRED:"):
             url = line.split(":", 1)[1].strip() or "https://login.tailscale.com/admin/dns"
             QDesktopServices.openUrl(QUrl(url))
-            self._show_activity()
-            self._activity_message.setText(
+            self._toast.show_activity()
+            self._toast.set_activity_message(
                 "Funnel exige MagicDNS e Enable HTTPS ligados. Abrindo login.tailscale.com/admin/dns..."
             )
-            self._activity_message.show()
             return
 
         if line.startswith("FUNNEL_SETUP_REQUIRED:"):
             url = line.split(":", 1)[1].strip() or "https://login.tailscale.com/admin/acls/file"
             QDesktopServices.openUrl(QUrl(url))
-            self._show_activity()
-            self._activity_message.setText(
+            self._toast.show_activity()
+            self._toast.set_activity_message(
                 "Funnel nao configurado na policy ACL. Abrindo login.tailscale.com/admin/acls/file..."
             )
-            self._activity_message.show()
             return
 
         friendly = self._friendly_line(line)
         if friendly:
-            self._activity_message.setText(friendly)
+            self._toast.set_activity_message(friendly)
 
     def _on_action_finished(self, action: str, exit_code: int) -> None:
         self._busy = False
@@ -1136,7 +957,7 @@ class MainWindow(QMainWindow):
             elif action in _ACTION_STATUS_PATCHES:
                 self._apply_action_status_patch(action)
         else:
-            last = self._activity_message.text()
+            last = self._toast.activity_message()
             msg = last if last and last != "Executando…" else "A operacao falhou."
             self._set_activity_result(action, False, msg)
 
