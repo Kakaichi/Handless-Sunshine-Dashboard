@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QEvent, QObject, Qt, QTimer
+from PySide6.QtCore import QEvent, QObject, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -34,6 +34,8 @@ def _apply_property(widget: QFrame, name: str, value: str) -> None:
 
 class ActivityToast(QFrame):
     """Transient toast for action progress and results."""
+
+    hidden = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -119,6 +121,7 @@ class ActivityToast(QFrame):
         self._hide_timer.stop()
         _apply_property(self, "status", "idle")
         self.hide()
+        self.hidden.emit()
 
 
 class BannerToast(QFrame):
@@ -162,22 +165,15 @@ class BannerToast(QFrame):
 
 
 class ToastHost(QWidget):
-    """Full-area overlay stacking toasts at the bottom-right corner."""
+    """Bottom-right toast stack; only covers the toast widgets (clickable)."""
 
     def __init__(self, parent: QWidget) -> None:
         super().__init__(parent)
-        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
 
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(TOAST_MARGIN, TOAST_MARGIN, TOAST_MARGIN, TOAST_MARGIN)
-        outer.addStretch()
-
-        row = QHBoxLayout()
-        row.addStretch()
-
-        stack = QVBoxLayout()
-        stack.setSpacing(8)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
 
         self._setup = BannerToast("setup", self)
         self.setup_open_btn = self._setup.add_button(
@@ -194,19 +190,37 @@ class ToastHost(QWidget):
 
         self._activity = ActivityToast(self)
 
-        stack.addWidget(self._setup)
-        stack.addWidget(self._update)
-        stack.addWidget(self._activity)
-        row.addLayout(stack)
-        outer.addLayout(row)
+        layout.addWidget(self._setup)
+        layout.addWidget(self._update)
+        layout.addWidget(self._activity)
+
+        self._activity.hidden.connect(self._sync_geometry)
 
         parent.installEventFilter(self)
-        self._sync_geometry()
+        self.hide()
 
     def _sync_geometry(self) -> None:
         parent = self.parentWidget()
-        if parent is not None:
-            self.setGeometry(parent.rect())
+        if parent is None:
+            return
+
+        any_visible = (
+            not self._setup.isHidden()
+            or not self._update.isHidden()
+            or not self._activity.isHidden()
+        )
+        if not any_visible:
+            self.hide()
+            return
+
+        self.adjustSize()
+        width = self.sizeHint().width()
+        height = self.sizeHint().height()
+        x = max(0, parent.width() - width - TOAST_MARGIN)
+        y = max(0, parent.height() - height - TOAST_MARGIN)
+        self.setGeometry(x, y, width, height)
+        self.raise_()
+        self.show()
 
     def eventFilter(self, obj: QObject, event: QEvent) -> bool:  # noqa: N802
         if obj is self.parentWidget() and event.type() == QEvent.Type.Resize:
@@ -214,37 +228,45 @@ class ToastHost(QWidget):
         return super().eventFilter(obj, event)
 
     def raise_overlay(self) -> None:
-        self.raise_()
-        self.show()
+        self._sync_geometry()
 
     def show_setup(self, message: str) -> None:
         self._setup.set_message(message)
         self._setup.show()
+        self._sync_geometry()
 
     def hide_setup(self) -> None:
         self._setup.hide()
+        self._sync_geometry()
 
     def show_update(self, message: str) -> None:
         self._update.set_message(message)
         self._update.show()
+        self._sync_geometry()
 
     def hide_update(self) -> None:
         self._update.hide()
+        self._sync_geometry()
 
     def set_activity_idle(self) -> None:
         self._activity.hide_idle()
+        self._sync_geometry()
 
     def show_activity(self) -> None:
         self._activity.show_for_message_update()
+        self._sync_geometry()
 
     def set_activity_running(self, title: str, message: str = "Executando…") -> None:
         self._activity.show_running(title, message)
+        self._sync_geometry()
 
     def set_activity_result(self, title: str, success: bool, message: str) -> None:
         self._activity.show_result(title, success, message)
+        self._sync_geometry()
 
     def set_activity_message(self, message: str) -> None:
         self._activity.set_message(message)
+        self._sync_geometry()
 
     def activity_title(self) -> str:
         return self._activity.title()
