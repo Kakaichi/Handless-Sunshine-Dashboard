@@ -163,6 +163,121 @@ function Get-HeadlessSteamVirtualSunshineDeviceId {
     return $null
 }
 
+function Normalize-HeadlessSteamDisplayDeviceName {
+    param([string]$Name)
+
+    if (-not $Name) {
+        return ""
+    }
+
+    return ($Name -replace '\\\\+', '\').Trim()
+}
+
+function Find-HeadlessSteamSunshineDeviceGuidInLog {
+    param(
+        [string]$DisplayName,
+        [switch]$PreferVirtualPattern
+    )
+
+    $targetDisplay = Normalize-HeadlessSteamDisplayDeviceName $DisplayName
+    foreach ($device in @(Get-HeadlessSteamSunshineDisplayDevicesFromLog)) {
+        $deviceId = [string]$device.device_id
+        if ($deviceId -notmatch '^\{') {
+            continue
+        }
+
+        $dn = Normalize-HeadlessSteamDisplayDeviceName ([string]$device.display_name)
+        if ($targetDisplay -and $dn -and $dn -eq $targetDisplay) {
+            return $deviceId
+        }
+
+        if ($PreferVirtualPattern -or -not $targetDisplay) {
+            $friendlyName = [string]$device.friendly_name
+            if ($friendlyName -match $script:HeadlessSteamVirtualOutputNamePattern) {
+                return $deviceId
+            }
+        }
+    }
+
+    return $null
+}
+
+function Wait-HeadlessSteamSunshineDeviceGuid {
+    param(
+        [string]$DisplayName,
+        [int]$TimeoutSec = 45
+    )
+
+    $deadline = (Get-Date).AddSeconds($TimeoutSec)
+    while ((Get-Date) -lt $deadline) {
+        $guid = Find-HeadlessSteamSunshineDeviceGuidInLog -DisplayName $DisplayName
+        if ($guid) {
+            return $guid
+        }
+
+        $guid = Find-HeadlessSteamSunshineDeviceGuidInLog -PreferVirtualPattern
+        if ($guid) {
+            foreach ($device in @(Get-HeadlessSteamSunshineDisplayDevicesFromLog)) {
+                if ([string]$device.device_id -ne $guid) {
+                    continue
+                }
+                $dn = Normalize-HeadlessSteamDisplayDeviceName ([string]$device.display_name)
+                $targetDisplay = Normalize-HeadlessSteamDisplayDeviceName $DisplayName
+                if ($targetDisplay -and $dn -and $dn -ne $targetDisplay) {
+                    break
+                }
+                if ($device.info -and $device.info.primary) {
+                    break
+                }
+                return $guid
+            }
+        }
+
+        Start-Sleep -Milliseconds 750
+    }
+
+    return $null
+}
+
+function Invoke-HeadlessSteamSunshineDisplayEnumeration {
+    $svc = Get-Service -Name "SunshineService" -ErrorAction SilentlyContinue
+    if (-not $svc) {
+        return $false
+    }
+
+    Restart-HeadlessSteamSunshineService | Out-Null
+    return $true
+}
+
+function Resolve-HeadlessSteamVirtualSunshineOutputName {
+    $virtualMonitor = Get-HeadlessSteamVirtualMonitorBounds
+    $targetDisplay = if ($virtualMonitor) { [string]$virtualMonitor.device } else { $null }
+
+    $guid = Find-HeadlessSteamSunshineDeviceGuidInLog -DisplayName $targetDisplay
+    if ($guid) {
+        return $guid
+    }
+
+    $guid = Resolve-HeadlessSteamVirtualSunshineDeviceId
+    if ($guid -match '^\{') {
+        return $guid
+    }
+
+    $guid = Get-HeadlessSteamVirtualDeviceGuidFromDxgi
+    if ($guid -match '^\{') {
+        return $guid
+    }
+
+    if (Invoke-HeadlessSteamSunshineDisplayEnumeration) {
+        $guid = Wait-HeadlessSteamSunshineDeviceGuid -DisplayName $targetDisplay
+        if ($guid) {
+            return $guid
+        }
+    }
+
+    return $null
+}
+
 function Get-HeadlessSteamVirtualDeviceGuidFromDxgi {
     $output = Find-HeadlessSteamVirtualDisplayOutput
     if (-not $output) {
@@ -382,8 +497,8 @@ function Wait-HeadlessSteamVirtualDisplayReady {
     )
 
     $deadline = (Get-Date).AddSeconds($TimeoutSec)
+    Enable-HeadlessSteamVirtualDisplay | Out-Null
     while ((Get-Date) -lt $deadline) {
-        Enable-HeadlessSteamVirtualDisplay | Out-Null
         Ensure-HeadlessSteamExtendedDesktop | Out-Null
         if (Test-HeadlessSteamVirtualDisplayReady) {
             return $true
@@ -809,7 +924,7 @@ function Restart-HeadlessSteamSunshineService {
     } else {
         Start-Service -Name "SunshineService" -ErrorAction Stop
     }
-    Start-Sleep -Seconds 2
+    Start-Sleep -Seconds 4
     return $true
 }
 
@@ -837,30 +952,30 @@ function Initialize-HeadlessSteamHostFreeMode {
     }
 
     $virtualOutput = $null
-    $outputName = $null
-    for ($attempt = 1; $attempt -le 8; $attempt++) {
+    $outputName = Resolve-HeadlessSteamVirtualSunshineOutputName
+    if ($outputName) {
         $virtualOutput = Find-HeadlessSteamVirtualDisplayOutput
-        $sunshineDeviceId = Resolve-HeadlessSteamVirtualSunshineDeviceId
-        if ($sunshineDeviceId -match '^\{') {
-            $outputName = $sunshineDeviceId
-            break
-        }
-        if ($virtualOutput -and [string]$virtualOutput.device_id -match '^\{') {
-            $outputName = [string]$virtualOutput.device_id
-            break
-        }
-        if ($attempt -lt 8) {
-            Invoke-HeadlessSteamSunshineDxgiInfo | Out-Null
-            Start-Sleep -Milliseconds 800
+        if (-not $virtualOutput) {
+            $virtualMonitor = Get-HeadlessSteamVirtualMonitorBounds
+            if ($virtualMonitor) {
+                $virtualOutput = [pscustomobject]@{
+                    display_name  = [string]$virtualMonitor.device
+                    device_id     = $outputName
+                    adapter_name  = ""
+                    friendly_name = ""
+                    primary       = $false
+                }
+            }
         }
     }
 
     if (-not $outputName) {
+        $virtualOutput = Find-HeadlessSteamVirtualDisplayOutput
         if ($virtualOutput -and $virtualOutput.display_name) {
             throw ("Nao foi possivel obter o GUID do monitor virtual ($($virtualOutput.display_name)). " +
-                "Aguarde alguns segundos e tente novamente.")
+                "Verifique se o servico Sunshine esta instalado e em execucao.")
         }
-        throw "Nao foi possivel identificar o monitor virtual. Aguarde alguns segundos e tente novamente."
+        throw "Nao foi possivel identificar o monitor virtual. Verifique se o Sunshine esta em execucao."
     }
 
     $adapterName = [string]$virtualOutput.adapter_name

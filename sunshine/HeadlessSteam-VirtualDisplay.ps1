@@ -164,18 +164,36 @@ function Ensure-HeadlessSteamVirtualDisplaySettings {
 }
 
 function Enable-HeadlessSteamVirtualDisplay {
+    param([switch]$Force)
+
     $devices = @(Get-HeadlessSteamVirtualDisplayPnpDevices)
     if ($devices.Count -eq 0) {
         return $false
     }
 
+    if (-not $Force -and (Test-HeadlessSteamVirtualDisplayDriverEnabled)) {
+        if ((Get-HeadlessSteamConnectedMonitorCount) -ge 2) {
+            return $true
+        }
+
+        if (Get-Command Ensure-HeadlessSteamExtendedDesktop -ErrorAction SilentlyContinue) {
+            Ensure-HeadlessSteamExtendedDesktop | Out-Null
+            Start-Sleep -Milliseconds 800
+        }
+
+        return (Test-HeadlessSteamVirtualDisplayReady)
+    }
+
     foreach ($device in $devices) {
         try {
-            if ($device.Status -eq "OK") {
+            if ($Force -and $device.Status -eq "OK") {
                 Disable-PnpDevice -InstanceId $device.InstanceId -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
                 Start-Sleep -Seconds 2
             }
-            Enable-PnpDevice -InstanceId $device.InstanceId -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+
+            if ($device.Status -ne "OK") {
+                Enable-PnpDevice -InstanceId $device.InstanceId -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+            }
         } catch {
             Write-Output "AVISO: Nao foi possivel alternar $($device.FriendlyName): $($_.Exception.Message)"
         }
@@ -765,7 +783,9 @@ function Set-HeadlessSteamVirtualDisplayResolution {
         Add-HeadlessSteamVirtualDisplaySettingsResolution -Width $target.width -Height $target.height | Out-Null
 
         if (-not (Test-HeadlessSteamDisplayModeAvailable -DeviceName $deviceName -Width $target.width -Height $target.height)) {
-            Enable-HeadlessSteamVirtualDisplay | Out-Null
+            if (-not (Test-HeadlessSteamVirtualDisplayDriverEnabled)) {
+                Enable-HeadlessSteamVirtualDisplay | Out-Null
+            }
             Wait-HeadlessSteamDisplayModeAvailable -DeviceName $deviceName `
                 -Width $target.width -Height $target.height -TimeoutSec 8 | Out-Null
         }

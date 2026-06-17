@@ -6,7 +6,6 @@ param(
     [int]$PollIntervalMs = 500,
     [int]$StopConfirmCount = 2,
     [int]$FocusIntervalMs = 300,
-    [int]$RemoteInputIntervalMs = 800,
     [int]$MoveWindowIntervalMs = 5000,
     [switch]$KeepFocus = $true,
     [switch]$HostFreeMode,
@@ -97,11 +96,6 @@ public static class SunshineGameFocus {
         public int Left; public int Top; public int Right; public int Bottom;
     }
 
-    [StructLayout(LayoutKind.Sequential)]
-    public struct POINT {
-        public int X; public int Y;
-    }
-
     private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
 
     [DllImport("user32.dll")] private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
@@ -119,7 +113,6 @@ public static class SunshineGameFocus {
     [DllImport("user32.dll")] private static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
     [DllImport("user32.dll")] private static extern bool AllowSetForegroundWindow(int dwProcessId);
     [DllImport("user32.dll")] private static extern bool SetCursorPos(int x, int y);
-    [DllImport("user32.dll")] private static extern bool GetCursorPos(out POINT lpPoint);
     [DllImport("user32.dll")] private static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, int dwExtraInfo);
     [DllImport("user32.dll")] private static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
     [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
@@ -208,33 +201,6 @@ public static class SunshineGameFocus {
         if (centerX < (virtualLeft + 40) || centerX > (virtualRight - 40)) return false;
         if (centerY < (virtualTop + 40) || centerY > (virtualBottom - 40)) return false;
         if (info.Width > (virtW + 120) || info.Height > (virtH + 120)) return false;
-        return true;
-    }
-
-    public static bool IsPointInRect(int x, int y, int left, int top, int right, int bottom) {
-        return x >= left && x < right && y >= top && y < bottom;
-    }
-
-    public static bool IsWindowCenterOnMonitor(IntPtr hWnd, int monLeft, int monTop, int monRight, int monBottom) {
-        WindowInfo info = GetWindowInfo(hWnd);
-        if (!info.Ok || info.Width <= 0 || info.Height <= 0) return false;
-        int centerX = info.Left + (info.Width / 2);
-        int centerY = info.Top + (info.Height / 2);
-        return IsPointInRect(centerX, centerY, monLeft, monTop, monRight, monBottom);
-    }
-
-    public static int[] GetCursorPosition() {
-        POINT pt;
-        if (!GetCursorPos(out pt)) return null;
-        return new int[] { pt.X, pt.Y };
-    }
-
-    public static bool RefocusGameForRemoteInput(IntPtr hWnd) {
-        if (hWnd == IntPtr.Zero) return false;
-        AllowSetForegroundWindow(ASFW_ANY);
-        ShowWindow(hWnd, SW_RESTORE);
-        SwitchToThisWindow(hWnd, true);
-        SetForegroundWindow(hWnd);
         return true;
     }
 
@@ -1017,74 +983,6 @@ function Apply-HeadlessSteamVirtualDisplayResolution {
     return $false
 }
 
-function Keep-RemoteGameInput {
-    param(
-        [string]$GameDir,
-        [System.Collections.Generic.HashSet[string]]$GameExecutableNames
-    )
-
-    try {
-        $processIds = Get-GameProcessIds -GameDir $GameDir -GameExecutableNames $GameExecutableNames
-        if ($processIds -is [System.Collections.Generic.HashSet[int]]) {
-            if ($processIds.Count -eq 0) { return }
-        } elseif (@($processIds).Count -eq 0) {
-            return
-        }
-
-        $gameWindow = [IntPtr]::Zero
-        if ($script:HostFreeGameWindow -ne [IntPtr]::Zero) {
-            $lockedPid = [SunshineGameFocus]::GetWindowProcessId($script:HostFreeGameWindow)
-            if (Test-GameProcessIdInSet -ProcessIds $processIds -ProcessId $lockedPid) {
-                $gameWindow = $script:HostFreeGameWindow
-            }
-        }
-        if ($gameWindow -eq [IntPtr]::Zero) {
-            $gameWindow = Find-GameWindowForHostFree -GameDir $GameDir -GameExecutableNames $GameExecutableNames
-        }
-        if ($gameWindow -eq [IntPtr]::Zero) { return }
-
-        $foreground = [SunshineGameFocus]::GetForegroundWindowHandle()
-        if ($foreground -eq $gameWindow) { return }
-
-        $foregroundPid = [SunshineGameFocus]::GetWindowProcessId($foreground)
-        if (Test-GameProcessIdInSet -ProcessIds $processIds -ProcessId $foregroundPid) { return }
-
-        $physical = Get-HeadlessSteamPhysicalMonitorSize
-        if (-not $physical) { return }
-
-        $physicalMon = @(Get-HeadlessSteamMonitorLayout) |
-            Where-Object { [string]$_.device_name -eq [string]$physical.device_name } |
-            Select-Object -First 1
-        if (-not $physicalMon) { return }
-
-        if (-not [SunshineGameFocus]::IsWindowCenterOnMonitor(
-                $foreground,
-                [int]$physicalMon.left, [int]$physicalMon.top,
-                [int]$physicalMon.right, [int]$physicalMon.bottom)) {
-            return
-        }
-
-        $cursorPos = [SunshineGameFocus]::GetCursorPosition()
-
-        Hide-SteamLauncherWindows
-        [SunshineGameFocus]::RefocusGameForRemoteInput($gameWindow) | Out-Null
-
-        if ($cursorPos) {
-            [SunshineGameFocus]::MoveCursorTo([int]$cursorPos[0], [int]$cursorPos[1]) | Out-Null
-        }
-
-        $state = "remote_input_refocus"
-        if ((Get-ScriptMoveLogState) -ne $state) {
-            Set-ScriptMoveLogState $state
-            $fgTitle = [SunshineGameFocus]::GetWindowTitle($foreground)
-            $gameTitle = [SunshineGameFocus]::GetWindowTitle($gameWindow)
-            Write-MonitorLog "Controle remoto: foco devolvido ao jogo '$gameTitle' (host em '$fgTitle')."
-        }
-    } catch {
-        Write-MonitorLog "AVISO: Erro ao manter controle remoto: $($_.Exception.Message)"
-    }
-}
-
 function Keep-GameFocused {
     param(
         [string]$GameDir,
@@ -1120,8 +1018,6 @@ function Keep-GameFocused {
     }
 }
 
-$KeepRemoteInput = $false
-
 . (Join-Path $script:ScriptDir "HeadlessSteam-HostSettings.ps1")
 if ($HostFreeMode -and -not (Test-HeadlessSteamHostFreeModeEnabled)) {
     Write-MonitorLog "AVISO: -HostFreeMode ignorado (tela virtual desativada nas configuracoes)."
@@ -1130,7 +1026,6 @@ if ($HostFreeMode -and -not (Test-HeadlessSteamHostFreeModeEnabled)) {
 
 if ($HostFreeMode) {
     $KeepFocus = $false
-    $KeepRemoteInput = [bool](Get-HeadlessSteamHostSettings).keep_remote_input_enabled
 }
 
 . (Join-Path $script:ScriptDir "HeadlessSteam-Display.ps1")
@@ -1140,7 +1035,7 @@ if (-not (Test-Path $SteamExe)) {
     exit 1
 }
 
-Write-MonitorLog "Sessao do usuario: monitoramento AppId=$AppId HostFreeMode=$HostFreeMode KeepFocus=$KeepFocus KeepRemoteInput=$KeepRemoteInput (launch v14)"
+Write-MonitorLog "Sessao do usuario: monitoramento AppId=$AppId HostFreeMode=$HostFreeMode KeepFocus=$KeepFocus (launch v15)"
 $gameExecutableNames = Get-GameExecutableNames -GameDir $InstallDir
 Write-MonitorLog "Executaveis: $($gameExecutableNames -join ', ')"
 
@@ -1212,7 +1107,6 @@ try {
     } else {
         $stoppedPolls = 0
         $lastFocusAt = [DateTime]::MinValue
-        $lastRemoteInputAt = [DateTime]::MinValue
 
         while ($true) {
             if (Test-GameSessionActive -AppId $AppId -GameDir $InstallDir -GameExecutableNames $gameExecutableNames) {
@@ -1227,10 +1121,6 @@ try {
                         } catch {
                             Write-MonitorLog "AVISO: Erro ao mover jogo: $($_.Exception.Message)"
                         }
-                    } elseif ($KeepRemoteInput -and $script:HostFreeGameOnVirtual `
-                            -and ((Get-Date) - $lastRemoteInputAt).TotalMilliseconds -ge $RemoteInputIntervalMs) {
-                        Keep-RemoteGameInput -GameDir $InstallDir -GameExecutableNames $gameExecutableNames
-                        $lastRemoteInputAt = Get-Date
                     }
                 } elseif ($KeepFocus -and ((Get-Date) - $lastFocusAt).TotalMilliseconds -ge $FocusIntervalMs) {
                     Keep-GameFocused -GameDir $InstallDir -GameExecutableNames $gameExecutableNames
@@ -1244,7 +1134,7 @@ try {
                 }
             }
 
-            $loopMs = if ($HostFreeMode -and $KeepRemoteInput) { 400 } elseif ($HostFreeMode) { 2000 } else { $PollIntervalMs }
+            $loopMs = if ($HostFreeMode) { 2000 } else { $PollIntervalMs }
             Start-Sleep -Milliseconds $loopMs
         }
     }

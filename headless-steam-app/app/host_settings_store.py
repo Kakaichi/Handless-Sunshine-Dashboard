@@ -12,7 +12,7 @@ from pathlib import Path
 class HostSettings:
     host_free_mode_enabled: bool = False
     keep_focus_enabled: bool = False
-    keep_remote_input_enabled: bool = True
+    desktop_access_enabled: bool = False
     stream_output_device_id: str | None = None
 
 
@@ -38,12 +38,10 @@ def load_settings() -> HostSettings:
     if host_free and "keep_focus_enabled" not in data:
         keep_focus = False
 
-    keep_remote = bool(data.get("keep_remote_input_enabled", True))
-
     return HostSettings(
         host_free_mode_enabled=host_free,
         keep_focus_enabled=keep_focus,
-        keep_remote_input_enabled=keep_remote,
+        desktop_access_enabled=bool(data.get("desktop_access_enabled", False)),
         stream_output_device_id=str(stream_output) if stream_output else None,
     )
 
@@ -54,7 +52,7 @@ def save_settings(settings: HostSettings) -> None:
     payload = {
         "host_free_mode_enabled": settings.host_free_mode_enabled,
         "keep_focus_enabled": settings.keep_focus_enabled,
-        "keep_remote_input_enabled": settings.keep_remote_input_enabled,
+        "desktop_access_enabled": settings.desktop_access_enabled,
         "stream_output_device_id": settings.stream_output_device_id,
     }
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")

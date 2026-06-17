@@ -178,6 +178,20 @@ function Get-SunshineConfigDirectory {
     return $null
 }
 
+function Get-HeadlessSteamDesktopAppEntry {
+    return [ordered]@{
+        name                      = "Desktop"
+        output                    = ""
+        cmd                       = ""
+        "image-path"              = "desktop.png"
+        "exclude-global-prep-cmd" = "true"
+    }
+}
+
+function Test-HeadlessSteamDesktopAccessEnabled {
+    return [bool](Get-HeadlessSteamHostSettings).desktop_access_enabled
+}
+
 function Initialize-SunshineDefaults {
     param([string]$SunshineConf)
 

@@ -17,10 +17,10 @@ function Write-HeadlessSteamHostSettingsUtf8 {
 
 function Get-HeadlessSteamHostSettings {
     $defaults = [ordered]@{
-        host_free_mode_enabled     = $false
-        keep_focus_enabled         = $false
-        keep_remote_input_enabled  = $true
-        stream_output_device_id    = $null
+        host_free_mode_enabled  = $false
+        keep_focus_enabled      = $false
+        desktop_access_enabled  = $false
+        stream_output_device_id = $null
     }
 
     if (-not (Test-Path -LiteralPath $script:HeadlessSteamHostSettingsFile)) {
@@ -34,14 +34,14 @@ function Get-HeadlessSteamHostSettings {
     }
 
     return [pscustomobject]@{
-        host_free_mode_enabled     = [bool]$data.host_free_mode_enabled
-        keep_focus_enabled         = [bool]$data.keep_focus_enabled
-        keep_remote_input_enabled  = if ($null -ne $data.PSObject.Properties['keep_remote_input_enabled']) {
-            [bool]$data.keep_remote_input_enabled
+        host_free_mode_enabled  = [bool]$data.host_free_mode_enabled
+        keep_focus_enabled      = [bool]$data.keep_focus_enabled
+        desktop_access_enabled  = if ($null -ne $data.PSObject.Properties['desktop_access_enabled']) {
+            [bool]$data.desktop_access_enabled
         } else {
-            $true
+            $false
         }
-        stream_output_device_id    = if ($data.stream_output_device_id) { [string]$data.stream_output_device_id } else { $null }
+        stream_output_device_id = if ($data.stream_output_device_id) { [string]$data.stream_output_device_id } else { $null }
     }
 }
 
@@ -49,15 +49,15 @@ function Set-HeadlessSteamHostSettings {
     param(
         [bool]$HostFreeModeEnabled,
         [bool]$KeepFocusEnabled,
-        [bool]$KeepRemoteInputEnabled = $true,
+        [bool]$DesktopAccessEnabled = $false,
         [string]$StreamOutputDeviceId = $null
     )
 
     $payload = [ordered]@{
-        host_free_mode_enabled     = [bool]$HostFreeModeEnabled
-        keep_focus_enabled         = [bool]$KeepFocusEnabled
-        keep_remote_input_enabled  = [bool]$KeepRemoteInputEnabled
-        stream_output_device_id    = if ($StreamOutputDeviceId) { $StreamOutputDeviceId } else { $null }
+        host_free_mode_enabled  = [bool]$HostFreeModeEnabled
+        keep_focus_enabled      = [bool]$KeepFocusEnabled
+        desktop_access_enabled  = [bool]$DesktopAccessEnabled
+        stream_output_device_id = if ($StreamOutputDeviceId) { $StreamOutputDeviceId } else { $null }
     }
 
     $json = ($payload | ConvertTo-Json -Depth 4)
@@ -83,10 +83,10 @@ function Update-HeadlessSteamHostSettings {
         [bool]$current.keep_focus_enabled
     }
 
-    $keepRemote = if ($Updates.ContainsKey("keep_remote_input_enabled")) {
-        [bool]$Updates.keep_remote_input_enabled
+    $desktopAccess = if ($Updates.ContainsKey("desktop_access_enabled")) {
+        [bool]$Updates.desktop_access_enabled
     } else {
-        [bool]$current.keep_remote_input_enabled
+        [bool]$current.desktop_access_enabled
     }
 
     $streamOutput = if ($Updates.ContainsKey("stream_output_device_id")) {
@@ -98,7 +98,7 @@ function Update-HeadlessSteamHostSettings {
     return Set-HeadlessSteamHostSettings `
         -HostFreeModeEnabled $hostFree `
         -KeepFocusEnabled $keepFocus `
-        -KeepRemoteInputEnabled $keepRemote `
+        -DesktopAccessEnabled $desktopAccess `
         -StreamOutputDeviceId $streamOutput
 }
 

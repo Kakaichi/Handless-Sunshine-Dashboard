@@ -758,7 +758,16 @@ foreach ($game in $pendingGames) {
 }
 
 $sortedGames = $gameApps | Sort-Object { $_.name }
-$apps = @($steamBp) + $sortedGames
+$hostSettings = Get-HeadlessSteamHostSettings
+$appsList = New-Object System.Collections.Generic.List[object]
+if ($hostSettings.desktop_access_enabled) {
+    $appsList.Add((Get-HeadlessSteamDesktopAppEntry)) | Out-Null
+}
+$appsList.Add($steamBp) | Out-Null
+foreach ($game in $sortedGames) {
+    $appsList.Add($game) | Out-Null
+}
+$apps = @($appsList.ToArray())
 
 $output = @{
     env  = @{}

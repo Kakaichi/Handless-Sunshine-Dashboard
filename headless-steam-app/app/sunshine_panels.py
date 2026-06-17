@@ -72,6 +72,8 @@ class SunshinePage(QWidget):
         self._build_advanced_link(layout)
         layout.addStretch()
 
+        self._load_host_settings_into_ui()
+
         scroll.setWidget(content)
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -199,7 +201,7 @@ class SunshinePage(QWidget):
         parent.addWidget(self._config_card)
 
     def _build_host_free_section(self, parent: QVBoxLayout) -> None:
-        self._host_free_card = SurfaceCard("Tela virtual")
+        self._host_free_card = SurfaceCard("Tela virtual (Experimental)")
         intro = QLabel(
             "Permite usar o computador normalmente, enquanto quem joga em outra sessão "
             "(Recomendável jogar em modo gamepad)."
@@ -213,14 +215,11 @@ class SunshinePage(QWidget):
         self._host_free_enabled.toggled.connect(self._on_host_free_toggled)
         self._host_free_card.body.addWidget(self._host_free_enabled)
 
-        self._keep_remote_input = QCheckBox("Manter controle remoto ativo (jogos que exigem foco)")
-        self._keep_remote_input.setObjectName("Muted")
-        self._keep_remote_input.setToolTip(
-            "Quando voce usa o mouse no monitor fisico, o jogo na tela virtual recupera o foco "
-            "para o controle remoto continuar funcionando. O cursor do mouse nao e movido."
-        )
-        self._keep_remote_input.toggled.connect(self._on_keep_remote_input_toggled)
-        self._host_free_card.body.addWidget(self._keep_remote_input)
+        host_free_warn = QLabel("Nem todos os jogos podem funcionar.")
+        host_free_warn.setObjectName("Muted")
+        host_free_warn.setWordWrap(True)
+        host_free_warn.setAutoFillBackground(False)
+        self._host_free_card.body.addWidget(host_free_warn)
 
         self._host_free_req_vdd = QLabel()
         self._host_free_req_vdd.setAutoFillBackground(False)
@@ -252,23 +251,17 @@ class SunshinePage(QWidget):
         self._host_free_card.body.addWidget(self._host_free_actions)
         parent.addWidget(self._host_free_card)
 
-        self._load_host_settings_into_ui()
-
     def _set_host_free_checkbox(self, checked: bool) -> None:
         self._loading_host_settings = True
         self._host_free_enabled.setChecked(checked)
-        self._keep_remote_input.setVisible(checked)
-        self._loading_host_settings = False
-
-    def _set_keep_remote_input_checkbox(self, checked: bool) -> None:
-        self._loading_host_settings = True
-        self._keep_remote_input.setChecked(checked)
         self._loading_host_settings = False
 
     def _load_host_settings_into_ui(self) -> None:
         settings = load_settings()
-        self._set_keep_remote_input_checkbox(settings.keep_remote_input_enabled)
-        self._set_host_free_checkbox(settings.host_free_mode_enabled)
+        self._loading_host_settings = True
+        self._host_free_enabled.setChecked(settings.host_free_mode_enabled)
+        self._desktop_access.setChecked(settings.desktop_access_enabled)
+        self._loading_host_settings = False
 
     def _persist_host_settings(self) -> None:
         if self._loading_host_settings:
@@ -279,12 +272,12 @@ class SunshinePage(QWidget):
             HostSettings(
                 host_free_mode_enabled=host_free,
                 keep_focus_enabled=current.keep_focus_enabled if not host_free else False,
-                keep_remote_input_enabled=self._keep_remote_input.isChecked(),
+                desktop_access_enabled=current.desktop_access_enabled,
                 stream_output_device_id=current.stream_output_device_id if host_free else None,
             )
         )
 
-    def _on_keep_remote_input_toggled(self, checked: bool) -> None:
+    def _persist_desktop_access(self) -> None:
         if self._loading_host_settings:
             return
         current = load_settings()
@@ -292,7 +285,7 @@ class SunshinePage(QWidget):
             HostSettings(
                 host_free_mode_enabled=current.host_free_mode_enabled,
                 keep_focus_enabled=current.keep_focus_enabled,
-                keep_remote_input_enabled=checked,
+                desktop_access_enabled=self._desktop_access.isChecked(),
                 stream_output_device_id=current.stream_output_device_id,
             )
         )
@@ -307,7 +300,7 @@ class SunshinePage(QWidget):
                 HostSettings(
                     host_free_mode_enabled=False,
                     keep_focus_enabled=True,
-                    keep_remote_input_enabled=current.keep_remote_input_enabled,
+                    desktop_access_enabled=current.desktop_access_enabled,
                     stream_output_device_id=None,
                 )
             )
@@ -316,10 +309,16 @@ class SunshinePage(QWidget):
                 HostSettings(
                     host_free_mode_enabled=True,
                     keep_focus_enabled=False,
-                    keep_remote_input_enabled=current.keep_remote_input_enabled,
+                    desktop_access_enabled=current.desktop_access_enabled,
                     stream_output_device_id=current.stream_output_device_id,
                 )
             )
+
+    def _on_desktop_access_toggled(self, _checked: bool) -> None:
+        if self._loading_host_settings:
+            return
+        self._persist_desktop_access()
+        self.request_action.emit("atualizar_jogos")
 
     def _on_host_free_toggled(self, checked: bool) -> None:
         if self._loading_host_settings:
@@ -352,6 +351,14 @@ class SunshinePage(QWidget):
         hint.setObjectName("Muted")
         hint.setAutoFillBackground(False)
         self._apps_card.body.addWidget(hint)
+
+        self._desktop_access = QCheckBox("Permitir acesso ao Desktop no Moonlight")
+        self._desktop_access.setToolTip(
+            "Quando ativado, convidados podem iniciar stream da area de trabalho. "
+            "Desativado por padrao — apenas jogos da lista."
+        )
+        self._desktop_access.toggled.connect(self._on_desktop_access_toggled)
+        self._apps_card.body.addWidget(self._desktop_access)
 
         self._apps_library = GamesLibraryWidget(self._service, layout_mode="list")
         self._apps_library.setMinimumHeight(280)
@@ -463,6 +470,7 @@ class SunshinePage(QWidget):
             self._upnp_combo,
             self._btn_save_config,
             self._btn_apply_config,
+            self._desktop_access,
             self._apps_library,
             self._btn_refresh_apps,
             self._btn_sync_apps,
