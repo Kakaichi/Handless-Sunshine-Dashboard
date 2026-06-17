@@ -27,6 +27,27 @@ function Test-WingetAvailable {
 
 . "$PSScriptRoot\Get-SteamPath.ps1"
 . "$PSScriptRoot\Sunshine-Config.ps1"
+. "$PSScriptRoot\HeadlessSteam-VirtualDisplay.ps1"
+
+function Test-VcRedistInstalled {
+    $keys = @(
+        "HKLM:\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64",
+        "HKLM:\SOFTWARE\WOW6432Node\Microsoft\VisualStudio\14.0\VC\Runtimes\x64"
+    )
+    foreach ($key in $keys) {
+        if (Test-Path $key) {
+            $installed = (Get-ItemProperty -Path $key -Name Installed -ErrorAction SilentlyContinue).Installed
+            if ($installed -eq 1) {
+                return $true
+            }
+        }
+    }
+    return $false
+}
+
+function Test-VirtualDisplayDriverInstalled {
+    return Test-HeadlessSteamVirtualDisplayInstalled
+}
 
 function Test-SunshineInstalled {
     if (Test-Path "$env:ProgramFiles\Sunshine\sunshine.exe") { return $true }
@@ -102,6 +123,22 @@ $dependencies = @(
         Test     = { Test-SteamInstalled }
         WingetId = "Valve.Steam"
         Required = $false
+    },
+    [ordered]@{
+        Name     = "Visual C++ Redistributable"
+        Test     = { Test-VcRedistInstalled }
+        WingetId = "Microsoft.VCRedist.2015+.x64"
+        Required = $false
+    },
+    [ordered]@{
+        Name     = "Virtual Display Driver"
+        Test     = { Test-VirtualDisplayDriverInstalled }
+        WingetId = "VirtualDrivers.Virtual-Display-Driver"
+        Required = $false
+        PostInstall = {
+            Enable-HeadlessSteamVirtualDisplay | Out-Null
+            Write-Status "  VDD: aguarde alguns segundos; o monitor virtual deve aparecer em Configuracoes > Tela."
+        }
     },
     [ordered]@{
         Name          = "Moonlight Web (local)"
@@ -181,7 +218,7 @@ foreach ($dep in $dependencies) {
 Write-Status ""
 
 if ($InstallMissing -and $installedSomething) {
-    Write-Status "Aguarde alguns segundos e reinicie o PC se o ViGEm Bus foi instalado agora."
+    Write-Status "Aguarde alguns segundos para os drivers recém-instalados entrarem em vigor."
     Write-Status "Tailscale novo: faca login com 'tailscale up' ou pelo icone na bandeja."
     Write-Status "Sunshine novo: acesse https://localhost:47990 para definir usuario/senha."
     Write-Status ""

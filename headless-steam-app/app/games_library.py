@@ -306,9 +306,10 @@ class GamesLibraryWidget(QWidget):
             self._list_items[index] = item
 
     def _available_width(self) -> int:
-        viewport_w = self._scroll.viewport().width()
-        if viewport_w > 50:
-            return viewport_w
+        if self._scroll is not None:
+            viewport_w = self._scroll.viewport().width()
+            if viewport_w > 50:
+                return viewport_w
 
         own_w = self.width()
         if own_w > 50:
@@ -331,6 +332,8 @@ class GamesLibraryWidget(QWidget):
         return 600
 
     def _sync_grid_host_width(self) -> None:
+        if self._grid_host is None:
+            return
         width = self._available_width()
         if width > 50:
             self._grid_host.setMinimumWidth(width)
@@ -339,6 +342,9 @@ class GamesLibraryWidget(QWidget):
         QTimer.singleShot(0, self._refresh_layout_when_ready)
 
     def _refresh_layout_when_ready(self) -> None:
+        if self._layout_mode != "grid" or self._scroll is None or self._grid is None:
+            return
+
         if not self._apps:
             return
 
@@ -371,7 +377,8 @@ class GamesLibraryWidget(QWidget):
 
     def showEvent(self, event) -> None:  # noqa: N802
         super().showEvent(event)
-        self._schedule_layout_refresh()
+        if self._layout_mode == "grid":
+            self._schedule_layout_refresh()
 
     def _clear_grid(self) -> None:
         while self._grid.count():

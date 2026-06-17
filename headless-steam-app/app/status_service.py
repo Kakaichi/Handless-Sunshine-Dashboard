@@ -60,6 +60,13 @@ class HeadlessSteamStatus:
     sunshine_username: str | None = None
     moonlight_local_url: str = "http://localhost:8080"
     moonlight_tailscale_url: str | None = None
+    host_free_mode_enabled: bool = False
+    virtual_display_installed: bool = False
+    virtual_display_active: bool = False
+    stream_output_configured: bool = False
+    host_free_ready: bool = False
+    host_free_status_message: str = ""
+    host_free_reboot_required: bool = False
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> HeadlessSteamStatus:
@@ -99,6 +106,13 @@ class HeadlessSteamStatus:
             sunshine_username=data.get("SunshineUsername") or None,
             moonlight_local_url=str(data.get("MoonlightLocalUrl") or "http://localhost:8080"),
             moonlight_tailscale_url=data.get("MoonlightTailscaleUrl") or None,
+            host_free_mode_enabled=bool(data.get("HostFreeModeEnabled")),
+            virtual_display_installed=bool(data.get("VirtualDisplayInstalled")),
+            virtual_display_active=bool(data.get("VirtualDisplayActive")),
+            stream_output_configured=bool(data.get("StreamOutputConfigured")),
+            host_free_ready=bool(data.get("HostFreeReady")),
+            host_free_status_message=str(data.get("HostFreeStatusMessage") or ""),
+            host_free_reboot_required=bool(data.get("HostFreeRebootRequired")),
         )
 
 

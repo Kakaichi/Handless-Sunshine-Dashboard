@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
+    QCheckBox,
     QFormLayout,
     QHBoxLayout,
     QLabel,
@@ -19,6 +20,8 @@ from PySide6.QtWidgets import (
 
 from app.constants import APP_DISPLAY_NAME
 from app.games_library import GamesLibraryWidget
+from app.host_free_requirements import update_host_free_requirements
+from app.host_settings_store import HostSettings, load_settings, save_settings
 from app.sunshine_service import SunshineService
 from app.widgets import ActionButton, LinkButton, NoWheelComboBox, SurfaceCard
 
@@ -42,6 +45,8 @@ class SunshinePage(QWidget):
         self._last_needs_setup: bool | None = None
         self._last_running: bool | None = None
         self._pending_restart_save = False
+        self._loading_host_settings = False
+        self._host_free_pending: bool | None = None
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -62,6 +67,7 @@ class SunshinePage(QWidget):
         self._build_pin_section(layout)
         self._build_clients_section(layout)
         self._build_config_section(layout)
+        self._build_host_free_section(layout)
         self._build_apps_section(layout)
         self._build_advanced_link(layout)
         layout.addStretch()
@@ -192,6 +198,154 @@ class SunshinePage(QWidget):
         self._config_card.hide()
         parent.addWidget(self._config_card)
 
+    def _build_host_free_section(self, parent: QVBoxLayout) -> None:
+        self._host_free_card = SurfaceCard("Tela virtual")
+        intro = QLabel(
+            "Permite usar o computador normalmente, enquanto quem joga em outra sessão "
+            "(Recomendável jogar em modo gamepad)."
+        )
+        intro.setObjectName("Muted")
+        intro.setWordWrap(True)
+        intro.setAutoFillBackground(False)
+        self._host_free_card.body.addWidget(intro)
+
+        self._host_free_enabled = QCheckBox("Iniciar jogo em uma tela virtual")
+        self._host_free_enabled.toggled.connect(self._on_host_free_toggled)
+        self._host_free_card.body.addWidget(self._host_free_enabled)
+
+        self._keep_remote_input = QCheckBox("Manter controle remoto ativo (jogos que exigem foco)")
+        self._keep_remote_input.setObjectName("Muted")
+        self._keep_remote_input.setToolTip(
+            "Quando voce usa o mouse no monitor fisico, o jogo na tela virtual recupera o foco "
+            "para o controle remoto continuar funcionando. O cursor do mouse nao e movido."
+        )
+        self._keep_remote_input.toggled.connect(self._on_keep_remote_input_toggled)
+        self._host_free_card.body.addWidget(self._keep_remote_input)
+
+        self._host_free_req_vdd = QLabel()
+        self._host_free_req_vdd.setAutoFillBackground(False)
+        self._host_free_card.body.addWidget(self._host_free_req_vdd)
+
+        self._host_free_req_monitor = QLabel()
+        self._host_free_req_monitor.setAutoFillBackground(False)
+        self._host_free_card.body.addWidget(self._host_free_req_monitor)
+
+        self._host_free_req_sunshine = QLabel()
+        self._host_free_req_sunshine.setAutoFillBackground(False)
+        self._host_free_card.body.addWidget(self._host_free_req_sunshine)
+
+        self._host_free_note = QLabel()
+        self._host_free_note.setObjectName("Muted")
+        self._host_free_note.setWordWrap(True)
+        self._host_free_note.setAutoFillBackground(False)
+        self._host_free_note.hide()
+        self._host_free_card.body.addWidget(self._host_free_note)
+
+        self._host_free_actions = QWidget()
+        actions_row = QHBoxLayout(self._host_free_actions)
+        actions_row.setContentsMargins(0, 0, 0, 0)
+        actions_row.setSpacing(10)
+        self._btn_install_vdd = ActionButton("Instalar monitor virtual", "vdd_install", "secondary")
+        self._btn_install_vdd.clicked.connect(lambda: self.request_action.emit("vdd_install"))
+        actions_row.addWidget(self._btn_install_vdd)
+        actions_row.addStretch()
+        self._host_free_card.body.addWidget(self._host_free_actions)
+        parent.addWidget(self._host_free_card)
+
+        self._load_host_settings_into_ui()
+
+    def _set_host_free_checkbox(self, checked: bool) -> None:
+        self._loading_host_settings = True
+        self._host_free_enabled.setChecked(checked)
+        self._keep_remote_input.setVisible(checked)
+        self._loading_host_settings = False
+
+    def _set_keep_remote_input_checkbox(self, checked: bool) -> None:
+        self._loading_host_settings = True
+        self._keep_remote_input.setChecked(checked)
+        self._loading_host_settings = False
+
+    def _load_host_settings_into_ui(self) -> None:
+        settings = load_settings()
+        self._set_keep_remote_input_checkbox(settings.keep_remote_input_enabled)
+        self._set_host_free_checkbox(settings.host_free_mode_enabled)
+
+    def _persist_host_settings(self) -> None:
+        if self._loading_host_settings:
+            return
+        current = load_settings()
+        host_free = self._host_free_enabled.isChecked()
+        save_settings(
+            HostSettings(
+                host_free_mode_enabled=host_free,
+                keep_focus_enabled=current.keep_focus_enabled if not host_free else False,
+                keep_remote_input_enabled=self._keep_remote_input.isChecked(),
+                stream_output_device_id=current.stream_output_device_id if host_free else None,
+            )
+        )
+
+    def _on_keep_remote_input_toggled(self, checked: bool) -> None:
+        if self._loading_host_settings:
+            return
+        current = load_settings()
+        save_settings(
+            HostSettings(
+                host_free_mode_enabled=current.host_free_mode_enabled,
+                keep_focus_enabled=current.keep_focus_enabled,
+                keep_remote_input_enabled=checked,
+                stream_output_device_id=current.stream_output_device_id,
+            )
+        )
+
+    def _revert_host_free_toggle(self, *, wanted_enabled: bool) -> None:
+        """Revert UI/settings after a failed enable/disable of host-free mode."""
+        self._host_free_pending = None
+        self._set_host_free_checkbox(not wanted_enabled)
+        current = load_settings()
+        if wanted_enabled:
+            save_settings(
+                HostSettings(
+                    host_free_mode_enabled=False,
+                    keep_focus_enabled=True,
+                    keep_remote_input_enabled=current.keep_remote_input_enabled,
+                    stream_output_device_id=None,
+                )
+            )
+        else:
+            save_settings(
+                HostSettings(
+                    host_free_mode_enabled=True,
+                    keep_focus_enabled=False,
+                    keep_remote_input_enabled=current.keep_remote_input_enabled,
+                    stream_output_device_id=current.stream_output_device_id,
+                )
+            )
+
+    def _on_host_free_toggled(self, checked: bool) -> None:
+        if self._loading_host_settings:
+            return
+        self._host_free_pending = checked
+        self._persist_host_settings()
+        if checked:
+            self.request_action.emit("host_free_setup")
+        else:
+            self.request_action.emit("host_free_teardown")
+
+    def update_host_free_status(self, status) -> None:
+        update_host_free_requirements(
+            status,
+            vdd_label=self._host_free_req_vdd,
+            monitor_label=self._host_free_req_monitor,
+            sunshine_label=self._host_free_req_sunshine,
+            note_label=self._host_free_note,
+        )
+        if self._host_free_pending is not None:
+            self._set_host_free_checkbox(self._host_free_pending)
+        else:
+            self._set_host_free_checkbox(status.host_free_mode_enabled)
+        self._btn_install_vdd.setVisible(not status.virtual_display_installed)
+        self._host_free_actions.setVisible(not status.virtual_display_installed)
+
     def _build_apps_section(self, parent: QVBoxLayout) -> None:
         self._apps_card = SurfaceCard("Jogos no Sunshine")
         hint = QLabel("Lista sincronizada da Steam. Use Sincronizar jogos para atualizar.")
@@ -259,6 +413,20 @@ class SunshinePage(QWidget):
     def on_action_finished(self, action: str, success: bool) -> None:
         if action == "atualizar_jogos" and success and self._sunshine_running:
             self._refresh_apps()
+        if action == "host_free_setup":
+            if success:
+                self._host_free_pending = None
+                self._load_host_settings_into_ui()
+            else:
+                self._revert_host_free_toggle(wanted_enabled=True)
+        elif action == "host_free_teardown":
+            if success:
+                self._host_free_pending = None
+                self._load_host_settings_into_ui()
+            else:
+                self._revert_host_free_toggle(wanted_enabled=False)
+        elif action == "vdd_install" and success:
+            self.request_action.emit("host_free_setup")
 
     def _update_availability(self) -> None:
         online = self._sunshine_running

@@ -18,7 +18,10 @@ param(
         "moonlight_apply_settings",
         "instalar_deps",
         "atualizar_jogos",
-        "open_sunshine_web"
+        "open_sunshine_web",
+        "vdd_install",
+        "host_free_setup",
+        "host_free_teardown"
     )]
     [string]$Action
 )
@@ -35,6 +38,9 @@ $env:HEADLESS_STEAM_APP_ROOT = $script:HeadlessSteamAppRoot
 . (Join-Path $scriptDir "HeadlessSteam-MoonlightSettings.ps1")
 . (Join-Path $scriptDir "HeadlessSteam-MoonlightRuntime.ps1")
 . (Join-Path $scriptDir "HeadlessSteam-Tailscale.ps1")
+. (Join-Path $scriptDir "HeadlessSteam-HostSettings.ps1")
+. (Join-Path $scriptDir "HeadlessSteam-VirtualDisplay.ps1")
+. (Join-Path $scriptDir "HeadlessSteam-Display.ps1")
 $tailscaleExe = Get-HeadlessSteamTailscaleExe
 if (-not $tailscaleExe) {
     $tailscaleExe = "C:\Program Files\Tailscale\tailscale.exe"
@@ -416,11 +422,88 @@ function Test-AnyServiceRunning {
     return ($status.SunshineRunning -or $status.TailscaleRunning -or $status.MoonlightRunning)
 }
 
+function Install-VirtualDisplayDriver {
+    Install-HeadlessSteamVirtualDisplay | Out-Null
+    if (Wait-HeadlessSteamVirtualDisplayReady -TimeoutSec 30) {
+        Write-ActionLog "Virtual Display Driver instalado e monitor virtual ativo."
+        return
+    }
+    if (Test-HeadlessSteamVirtualDisplayInstalled) {
+        Write-ActionLog "Virtual Display Driver instalado. Ative a tela virtual em Configurar."
+        return
+    }
+    Write-ActionLog "Virtual Display Driver instalado."
+}
+
+function Setup-HostFreeMode {
+    param(
+        [switch]$InstallIfMissing,
+        [switch]$ResyncGames
+    )
+
+    $result = Initialize-HeadlessSteamHostFreeMode -InstallIfMissing:$InstallIfMissing -ResyncGames:$ResyncGames
+    Update-HeadlessSteamHostSettings @{
+        stream_output_device_id = $result.OutputName
+    } | Out-Null
+    Write-ActionLog "Modo host livre configurado."
+}
+
+function Invoke-HostFreeTeardownIfNeeded {
+  . (Join-Path $scriptDir "HeadlessSteam-HostSettings.ps1")
+  if (Test-HeadlessSteamHostFreeModeEnabled) {
+    return
+  }
+
+  $needsTeardown = Test-HeadlessSteamVirtualDisplayDriverEnabled
+  if (-not $needsTeardown) {
+    $hostFreeStatus = Get-HeadlessSteamHostFreeStatus -Quick
+    $needsTeardown = [bool]$hostFreeStatus.StreamOutputConfigured
+  }
+
+  if (-not $needsTeardown) {
+    return
+  }
+
+  try {
+    Teardown-HeadlessSteamHostFreeMode -ResyncGames
+    Write-ActionLog "Monitor virtual desativado. Jogos usarao a tela principal."
+  } catch {
+    Write-ActionLog "AVISO: Desativar tela virtual: $($_.Exception.Message)"
+  }
+}
+
+function Invoke-HostFreeDisplayPolicy {
+  if (Test-HeadlessSteamHostFreeModeEnabled) {
+    Invoke-HostFreeSetupIfNeeded
+  } else {
+    Invoke-HostFreeTeardownIfNeeded
+  }
+}
+
+function Invoke-HostFreeSetupIfNeeded {
+    if (-not (Test-HeadlessSteamHostFreeAutoSetupOnStart)) {
+        return
+    }
+
+    $hostFreeStatus = Get-HeadlessSteamHostFreeStatus -Quick
+    if ($hostFreeStatus.HostFreeReady) {
+        Write-ActionLog "Modo host livre ja configurado. Pulando reconfiguracao."
+        return
+    }
+
+    try {
+        Setup-HostFreeMode -InstallIfMissing -ResyncGames
+    } catch {
+        Write-ActionLog "AVISO: Modo host livre: $($_.Exception.Message)"
+    }
+}
+
 try {
     switch ($Action) {
         "ligar_tudo" {
             Install-Dependencies
             Start-TailscaleService
+            Invoke-HostFreeDisplayPolicy
             Update-SteamGames
             Start-SunshineService
             Write-ActionLog "Concluido. Moonlight Web e opcional pela aba Moonlight Web."
@@ -441,6 +524,7 @@ try {
                 Write-ActionLog "Alternando: ligando..."
                 Install-Dependencies
                 Start-TailscaleService
+                Invoke-HostFreeDisplayPolicy
                 Update-SteamGames
                 Start-SunshineService
             }
@@ -448,6 +532,7 @@ try {
         }
         "sunshine_ligar" {
             Install-Dependencies
+            Invoke-HostFreeDisplayPolicy
             Update-SteamGames
             Start-SunshineService
             Write-ActionLog "Concluido."
@@ -542,6 +627,26 @@ try {
                 throw "Sunshine esta desligado. Ligue primeiro."
             }
             Write-ActionLog "OK:$($status.SunshinePanelUrl)"
+        }
+        "vdd_install" {
+            Install-VirtualDisplayDriver
+            Write-ActionLog "Concluido."
+        }
+        "host_free_setup" {
+            if (-not (Test-HeadlessSteamHostFreeModeEnabled)) {
+                Invoke-HostFreeTeardownIfNeeded
+                Write-ActionLog "Tela virtual desativada nas configuracoes."
+            } elseif ((Get-HeadlessSteamHostFreeStatus -Quick).HostFreeReady) {
+                Write-ActionLog "Modo host livre ja configurado. Pulando reconfiguracao."
+            } else {
+                Setup-HostFreeMode -InstallIfMissing -ResyncGames
+            }
+            Write-ActionLog "Concluido."
+        }
+        "host_free_teardown" {
+            Teardown-HeadlessSteamHostFreeMode -ResyncGames
+            Write-ActionLog "Monitor virtual desativado. Jogos usarao a tela principal."
+            Write-ActionLog "Concluido."
         }
     }
     exit 0

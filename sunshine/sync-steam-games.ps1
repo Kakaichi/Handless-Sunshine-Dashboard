@@ -17,6 +17,7 @@ if ($Host.Name -eq 'ConsoleHost') {
 . "$PSScriptRoot\Sunshine-Config.ps1"
 . "$PSScriptRoot\HeadlessSteam-SyncLog.ps1"
 . "$PSScriptRoot\HeadlessSteam-InteractiveUser.ps1"
+. "$PSScriptRoot\HeadlessSteam-HostSettings.ps1"
 
 if (-not $env:HEADLESS_STEAM_APP_ROOT) {
     $env:HEADLESS_STEAM_APP_ROOT = Get-HeadlessSteamAppRoot -FromScriptDir $PSScriptRoot
@@ -720,6 +721,12 @@ foreach ($game in $pendingGames) {
 
         $entry = if ($canTrackGame) {
             $launchCmd = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$launchGameScript`" -AppId $appid -InstallDir `"$gameDir`" -SteamExe `"$steamExe`""
+            $hostSettings = Get-HeadlessSteamHostSettings
+            if ($hostSettings.host_free_mode_enabled) {
+                $launchCmd += " -HostFreeMode"
+            } elseif ($hostSettings.keep_focus_enabled) {
+                $launchCmd += " -KeepFocus"
+            }
             [ordered]@{
                 name          = $name
                 cmd           = $launchCmd

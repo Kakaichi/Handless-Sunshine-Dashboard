@@ -102,6 +102,18 @@ cd sunshine
 - **Sunshine** — credenciais, PIN, clientes, configuração via API local (`https://localhost:47990`)
 - **Tailscale** — ligar/desligar
 - **Moonlight Web** — ligar/desligar, usuários, Tailscale Funnel (acesso público via URL `*.ts.net`), URLs de acesso
+- **Modo host livre** — monitor virtual (Virtual Display Driver) para convidados jogarem via Moonlight enquanto você usa o PC no monitor físico
+
+### Modo host livre (monitor virtual)
+
+Na aba **Sunshine** → **Modo host livre**:
+
+1. Ative o modo e clique **Instalar monitor virtual** (winget: `VirtualDrivers.Virtual-Display-Driver`) ou use **Instalar dependências**
+2. **Reinicie o PC** se o Windows não mostrar 2 telas em Configurações → Tela
+3. Clique **Configurar agora** — o app estende o desktop, aponta o Sunshine para o monitor virtual e sincroniza os jogos
+4. O convidado inicia o **jogo pela lista do Moonlight** (não Desktop). Recomendado: **controle (gamepad)** remoto
+
+Limitações: teclado/mouse remoto ainda compartilham a mesma sessão Windows; funciona para jogos da biblioteca Steam, não para stream de área de trabalho.
 
 ### Sincronizar jogos Steam
 

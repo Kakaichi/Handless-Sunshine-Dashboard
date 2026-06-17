@@ -1,17 +1,215 @@
-﻿{
-  "apps": [
-    {
-      "name": "Steam Big Picture",
-      "cmd": "steam://open/bigpicture",
-      "prep-cmd": [
-        {
-          "do": "",
-          "undo": "steam://close/bigpicture"
-        }
-      ],
-      "auto-detach": true,
-      "wait-all": true,
-      "image-path": "steam.png"
-    }
-  ]
+{
+    "apps":  [
+                 {
+                     "name":  "Steam Big Picture",
+                     "cmd":  "steam://open/bigpicture",
+                     "prep-cmd":  [
+                                      {
+                                          "do":  "",
+                                          "undo":  "steam://close/bigpicture"
+                                      }
+                                  ],
+                     "auto-detach":  true,
+                     "wait-all":  true,
+                     "image-path":  "steam.png"
+                 },
+                 {
+                     "name":  "ACE COMBAT™7: SKIES UNKNOWN",
+                     "cmd":  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"D:\\Sites\\HicaroJunior\\Headless_Steam\\sunshine\\launch-steam-game.ps1\" -AppId 502500 -InstallDir \"C:\\SteamLibrary\\steamapps\\common\\ACE COMBAT 7\" -SteamExe \"D:\\Program Files\\Steam\\steam.exe\" -HostFreeMode",
+                     "auto-detach":  false,
+                     "wait-all":  true,
+                     "image-path":  "covers\\502500.png",
+                     "prep-cmd":  [
+                                      {
+                                          "do":  "",
+                                          "undo":  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"D:\\Sites\\HicaroJunior\\Headless_Steam\\sunshine\\close-steam-game.ps1\" -InstallDir \"C:\\SteamLibrary\\steamapps\\common\\ACE COMBAT 7\" -AppId 502500"
+                                      }
+                                  ]
+                 },
+                 {
+                     "name":  "Clair Obscur: Expedition 33",
+                     "cmd":  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"D:\\Sites\\HicaroJunior\\Headless_Steam\\sunshine\\launch-steam-game.ps1\" -AppId 1903340 -InstallDir \"D:\\program files\\steam\\steamapps\\common\\Expedition 33\" -SteamExe \"D:\\Program Files\\Steam\\steam.exe\" -HostFreeMode",
+                     "auto-detach":  false,
+                     "wait-all":  true,
+                     "image-path":  "covers\\1903340.png",
+                     "prep-cmd":  [
+                                      {
+                                          "do":  "",
+                                          "undo":  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"D:\\Sites\\HicaroJunior\\Headless_Steam\\sunshine\\close-steam-game.ps1\" -InstallDir \"D:\\program files\\steam\\steamapps\\common\\Expedition 33\" -AppId 1903340"
+                                      }
+                                  ]
+                 },
+                 {
+                     "name":  "Cyberpunk 2077",
+                     "cmd":  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"D:\\Sites\\HicaroJunior\\Headless_Steam\\sunshine\\launch-steam-game.ps1\" -AppId 1091500 -InstallDir \"D:\\program files\\steam\\steamapps\\common\\Cyberpunk 2077\" -SteamExe \"D:\\Program Files\\Steam\\steam.exe\" -HostFreeMode",
+                     "auto-detach":  false,
+                     "wait-all":  true,
+                     "image-path":  "covers\\1091500.png",
+                     "prep-cmd":  [
+                                      {
+                                          "do":  "",
+                                          "undo":  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"D:\\Sites\\HicaroJunior\\Headless_Steam\\sunshine\\close-steam-game.ps1\" -InstallDir \"D:\\program files\\steam\\steamapps\\common\\Cyberpunk 2077\" -AppId 1091500"
+                                      }
+                                  ]
+                 },
+                 {
+                     "name":  "Diablo® IV",
+                     "cmd":  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"D:\\Sites\\HicaroJunior\\Headless_Steam\\sunshine\\launch-steam-game.ps1\" -AppId 2344520 -InstallDir \"D:\\program files\\steam\\steamapps\\common\\Diablo IV\" -SteamExe \"D:\\Program Files\\Steam\\steam.exe\" -HostFreeMode",
+                     "auto-detach":  false,
+                     "wait-all":  true,
+                     "image-path":  "covers\\2344520.png",
+                     "prep-cmd":  [
+                                      {
+                                          "do":  "",
+                                          "undo":  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"D:\\Sites\\HicaroJunior\\Headless_Steam\\sunshine\\close-steam-game.ps1\" -InstallDir \"D:\\program files\\steam\\steamapps\\common\\Diablo IV\" -AppId 2344520"
+                                      }
+                                  ]
+                 },
+                 {
+                     "name":  "Digimon Story Time Stranger",
+                     "cmd":  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"D:\\Sites\\HicaroJunior\\Headless_Steam\\sunshine\\launch-steam-game.ps1\" -AppId 1984270 -InstallDir \"D:\\program files\\steam\\steamapps\\common\\Digimon Story Time Stranger\" -SteamExe \"D:\\Program Files\\Steam\\steam.exe\" -HostFreeMode",
+                     "auto-detach":  false,
+                     "wait-all":  true,
+                     "image-path":  "covers\\1984270.png",
+                     "prep-cmd":  [
+                                      {
+                                          "do":  "",
+                                          "undo":  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"D:\\Sites\\HicaroJunior\\Headless_Steam\\sunshine\\close-steam-game.ps1\" -InstallDir \"D:\\program files\\steam\\steamapps\\common\\Digimon Story Time Stranger\" -AppId 1984270"
+                                      }
+                                  ]
+                 },
+                 {
+                     "name":  "DRAGON BALL: Sparking! ZERO",
+                     "cmd":  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"D:\\Sites\\HicaroJunior\\Headless_Steam\\sunshine\\launch-steam-game.ps1\" -AppId 1790600 -InstallDir \"D:\\program files\\steam\\steamapps\\common\\DRAGON BALL Sparking! ZERO\" -SteamExe \"D:\\Program Files\\Steam\\steam.exe\" -HostFreeMode",
+                     "auto-detach":  false,
+                     "wait-all":  true,
+                     "image-path":  "covers\\1790600.png",
+                     "prep-cmd":  [
+                                      {
+                                          "do":  "",
+                                          "undo":  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"D:\\Sites\\HicaroJunior\\Headless_Steam\\sunshine\\close-steam-game.ps1\" -InstallDir \"D:\\program files\\steam\\steamapps\\common\\DRAGON BALL Sparking! ZERO\" -AppId 1790600"
+                                      }
+                                  ]
+                 },
+                 {
+                     "name":  "FINAL FANTASY XIV Online",
+                     "cmd":  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"D:\\Sites\\HicaroJunior\\Headless_Steam\\sunshine\\launch-steam-game.ps1\" -AppId 39210 -InstallDir \"D:\\program files\\steam\\steamapps\\common\\FINAL FANTASY XIV Online\" -SteamExe \"D:\\Program Files\\Steam\\steam.exe\" -HostFreeMode",
+                     "auto-detach":  false,
+                     "wait-all":  true,
+                     "image-path":  "covers\\39210.png",
+                     "prep-cmd":  [
+                                      {
+                                          "do":  "",
+                                          "undo":  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"D:\\Sites\\HicaroJunior\\Headless_Steam\\sunshine\\close-steam-game.ps1\" -InstallDir \"D:\\program files\\steam\\steamapps\\common\\FINAL FANTASY XIV Online\" -AppId 39210"
+                                      }
+                                  ]
+                 },
+                 {
+                     "name":  "FINAL FANTASY XIV Online Free Trial",
+                     "cmd":  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"D:\\Sites\\HicaroJunior\\Headless_Steam\\sunshine\\launch-steam-game.ps1\" -AppId 312060 -InstallDir \"D:\\program files\\steam\\steamapps\\common\\FINAL FANTASY XIV Online\" -SteamExe \"D:\\Program Files\\Steam\\steam.exe\" -HostFreeMode",
+                     "auto-detach":  false,
+                     "wait-all":  true,
+                     "image-path":  "covers\\312060.png",
+                     "prep-cmd":  [
+                                      {
+                                          "do":  "",
+                                          "undo":  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"D:\\Sites\\HicaroJunior\\Headless_Steam\\sunshine\\close-steam-game.ps1\" -InstallDir \"D:\\program files\\steam\\steamapps\\common\\FINAL FANTASY XIV Online\" -AppId 312060"
+                                      }
+                                  ]
+                 },
+                 {
+                     "name":  "FINAL FANTASY XVI",
+                     "cmd":  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"D:\\Sites\\HicaroJunior\\Headless_Steam\\sunshine\\launch-steam-game.ps1\" -AppId 2515020 -InstallDir \"C:\\SteamLibrary\\steamapps\\common\\FINAL FANTASY XVI\" -SteamExe \"D:\\Program Files\\Steam\\steam.exe\" -HostFreeMode",
+                     "auto-detach":  false,
+                     "wait-all":  true,
+                     "image-path":  "covers\\2515020.png",
+                     "prep-cmd":  [
+                                      {
+                                          "do":  "",
+                                          "undo":  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"D:\\Sites\\HicaroJunior\\Headless_Steam\\sunshine\\close-steam-game.ps1\" -InstallDir \"C:\\SteamLibrary\\steamapps\\common\\FINAL FANTASY XVI\" -AppId 2515020"
+                                      }
+                                  ]
+                 },
+                 {
+                     "name":  "Kingdom Come: Deliverance",
+                     "cmd":  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"D:\\Sites\\HicaroJunior\\Headless_Steam\\sunshine\\launch-steam-game.ps1\" -AppId 379430 -InstallDir \"C:\\SteamLibrary\\steamapps\\common\\KingdomComeDeliverance\" -SteamExe \"D:\\Program Files\\Steam\\steam.exe\" -HostFreeMode",
+                     "auto-detach":  false,
+                     "wait-all":  true,
+                     "image-path":  "covers\\379430.png",
+                     "prep-cmd":  [
+                                      {
+                                          "do":  "",
+                                          "undo":  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"D:\\Sites\\HicaroJunior\\Headless_Steam\\sunshine\\close-steam-game.ps1\" -InstallDir \"C:\\SteamLibrary\\steamapps\\common\\KingdomComeDeliverance\" -AppId 379430"
+                                      }
+                                  ]
+                 },
+                 {
+                     "name":  "Phoenix Wright: Ace Attorney Trilogy",
+                     "cmd":  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"D:\\Sites\\HicaroJunior\\Headless_Steam\\sunshine\\launch-steam-game.ps1\" -AppId 787480 -InstallDir \"D:\\program files\\steam\\steamapps\\common\\Phoenix Wright Ace Attorney Trilogy\" -SteamExe \"D:\\Program Files\\Steam\\steam.exe\" -HostFreeMode",
+                     "auto-detach":  false,
+                     "wait-all":  true,
+                     "image-path":  "covers\\787480.png",
+                     "prep-cmd":  [
+                                      {
+                                          "do":  "",
+                                          "undo":  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"D:\\Sites\\HicaroJunior\\Headless_Steam\\sunshine\\close-steam-game.ps1\" -InstallDir \"D:\\program files\\steam\\steamapps\\common\\Phoenix Wright Ace Attorney Trilogy\" -AppId 787480"
+                                      }
+                                  ]
+                 },
+                 {
+                     "name":  "PRAGMATA",
+                     "cmd":  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"D:\\Sites\\HicaroJunior\\Headless_Steam\\sunshine\\launch-steam-game.ps1\" -AppId 3357650 -InstallDir \"D:\\program files\\steam\\steamapps\\common\\PRAGMATA\" -SteamExe \"D:\\Program Files\\Steam\\steam.exe\" -HostFreeMode",
+                     "auto-detach":  false,
+                     "wait-all":  true,
+                     "image-path":  "covers\\3357650.png",
+                     "prep-cmd":  [
+                                      {
+                                          "do":  "",
+                                          "undo":  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"D:\\Sites\\HicaroJunior\\Headless_Steam\\sunshine\\close-steam-game.ps1\" -InstallDir \"D:\\program files\\steam\\steamapps\\common\\PRAGMATA\" -AppId 3357650"
+                                      }
+                                  ]
+                 },
+                 {
+                     "name":  "Project Wingman",
+                     "cmd":  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"D:\\Sites\\HicaroJunior\\Headless_Steam\\sunshine\\launch-steam-game.ps1\" -AppId 895870 -InstallDir \"D:\\program files\\steam\\steamapps\\common\\Project Wingman\" -SteamExe \"D:\\Program Files\\Steam\\steam.exe\" -HostFreeMode",
+                     "auto-detach":  false,
+                     "wait-all":  true,
+                     "image-path":  "covers\\895870.png",
+                     "prep-cmd":  [
+                                      {
+                                          "do":  "",
+                                          "undo":  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"D:\\Sites\\HicaroJunior\\Headless_Steam\\sunshine\\close-steam-game.ps1\" -InstallDir \"D:\\program files\\steam\\steamapps\\common\\Project Wingman\" -AppId 895870"
+                                      }
+                                  ]
+                 },
+                 {
+                     "name":  "Red Dead Redemption 2",
+                     "cmd":  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"D:\\Sites\\HicaroJunior\\Headless_Steam\\sunshine\\launch-steam-game.ps1\" -AppId 1174180 -InstallDir \"D:\\program files\\steam\\steamapps\\common\\Red Dead Redemption 2\" -SteamExe \"D:\\Program Files\\Steam\\steam.exe\" -HostFreeMode",
+                     "auto-detach":  false,
+                     "wait-all":  true,
+                     "image-path":  "covers\\1174180.png",
+                     "prep-cmd":  [
+                                      {
+                                          "do":  "",
+                                          "undo":  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"D:\\Sites\\HicaroJunior\\Headless_Steam\\sunshine\\close-steam-game.ps1\" -InstallDir \"D:\\program files\\steam\\steamapps\\common\\Red Dead Redemption 2\" -AppId 1174180"
+                                      }
+                                  ]
+                 },
+                 {
+                     "name":  "Sea of Stars: Sunset Edition",
+                     "cmd":  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"D:\\Sites\\HicaroJunior\\Headless_Steam\\sunshine\\launch-steam-game.ps1\" -AppId 1244090 -InstallDir \"D:\\program files\\steam\\steamapps\\common\\Sea of Stars\" -SteamExe \"D:\\Program Files\\Steam\\steam.exe\" -HostFreeMode",
+                     "auto-detach":  false,
+                     "wait-all":  true,
+                     "image-path":  "covers\\1244090.png",
+                     "prep-cmd":  [
+                                      {
+                                          "do":  "",
+                                          "undo":  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"D:\\Sites\\HicaroJunior\\Headless_Steam\\sunshine\\close-steam-game.ps1\" -InstallDir \"D:\\program files\\steam\\steamapps\\common\\Sea of Stars\" -AppId 1244090"
+                                      }
+                                  ]
+                 }
+             ],
+    "env":  {
+
+            }
 }

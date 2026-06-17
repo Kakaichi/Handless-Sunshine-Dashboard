@@ -135,7 +135,10 @@ try {
         "HeadlessSteam-Status.ps1",
         "Invoke-HeadlessSteamAction.ps1",
         "sync-steam-games.ps1",
-        "Apply-HeadlessSteamUpdate.ps1"
+        "Apply-HeadlessSteamUpdate.ps1",
+        "HeadlessSteam-VirtualDisplay.ps1",
+        "HeadlessSteam-Display.ps1",
+        "HeadlessSteam-HostSettings.ps1"
     )
     foreach ($scriptName in $requiredScripts) {
         $scriptPath = Join-Path $sunshineDest $scriptName

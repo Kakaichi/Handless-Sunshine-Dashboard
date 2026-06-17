@@ -33,6 +33,9 @@ ACTIONS = (
     "instalar_deps",
     "atualizar_jogos",
     "open_sunshine_web",
+    "vdd_install",
+    "host_free_setup",
+    "host_free_teardown",
 )
 
 MOONLIGHT_USER_ACTIONS = {

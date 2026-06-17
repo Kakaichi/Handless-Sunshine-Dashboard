@@ -64,6 +64,9 @@ ACTION_LABELS = {
     "instalar_deps": "Instalar dependencias",
     "atualizar_jogos": "Sincronizar jogos Steam",
     "open_sunshine_web": "Abrir painel Sunshine",
+    "vdd_install": "Instalar monitor virtual",
+    "host_free_setup": "Configurar tela virtual",
+    "host_free_teardown": "Desativar tela virtual",
 }
 
 NAV_ITEMS = (
@@ -155,6 +158,7 @@ class MainWindow(QMainWindow):
         self._last_games_refresh_key: tuple[bool, bool, bool] | None = None
         self._alternar_was_running = False
         self._pending_update_info: UpdateInfo | None = None
+        self._last_action: str | None = None
 
         central = QWidget()
         self.setCentralWidget(central)
@@ -772,6 +776,7 @@ class MainWindow(QMainWindow):
             gamepad_mode=status.gamepad_mode,
             sunshine_username=status.sunshine_username,
         )
+        self._sunshine_page.update_host_free_status(status)
 
         if status.tailscale_connected:
             t_text, t_color = "Conectado", "#3dd68c"
@@ -866,6 +871,7 @@ class MainWindow(QMainWindow):
         self._set_activity_result("", False, f"Falha ao ler status: {message}")
 
     def _on_action_started(self, action: str) -> None:
+        self._last_action = action
         self._busy = True
         self._set_activity_running(action)
         self._set_actions_enabled(False)
@@ -909,6 +915,40 @@ class MainWindow(QMainWindow):
             self._toast.set_activity_message(
                 "App Tailscale aberto na bandeja. Entre na conta ou aguarde a conexao."
             )
+            return
+
+        if line.startswith("HOST_FREE_VIRTUAL_RES:"):
+            resolution = line.split(":", 1)[1].strip()
+            self._toast.show_activity()
+            self._toast.set_activity_message(
+                f"Monitor virtual ajustado para {resolution}."
+                if resolution
+                else "Resolucao do monitor virtual ajustada."
+            )
+            return
+
+        if line.startswith("HOST_FREE_READY:"):
+            self._toast.show_activity()
+            self._toast.set_activity_message("Tela virtual configurada e pronta.")
+            self._status_service.refresh(full=True)
+            return
+
+        if line.startswith("HOST_FREE_MISSING_VDD:"):
+            self._toast.show_activity()
+            self._toast.set_activity_message("Instale o Virtual Display Driver primeiro.")
+            return
+
+        if line.startswith("HOST_FREE_TEARDOWN:"):
+            self._toast.show_activity()
+            self._toast.set_activity_message(
+                "Tela virtual desativada. Jogos usarao a tela principal."
+            )
+            self._status_service.refresh(full=True)
+            return
+
+        if line.startswith("HOST_FREE_OUTPUT:"):
+            self._toast.show_activity()
+            self._toast.set_activity_message("Sunshine configurado para o monitor virtual.")
             return
 
         if line.startswith("FUNNEL_ACL_REQUIRED:"):
@@ -996,6 +1036,9 @@ class MainWindow(QMainWindow):
         self._set_actions_enabled(True)
         self._set_activity_result("", False, message)
         self._schedule_status_refresh_after_toggle()
+        action = self._last_action or ""
+        if action in {"host_free_setup", "host_free_teardown"}:
+            self._sunshine_page.on_action_finished(action, False)
         QMessageBox.warning(self, APP_DISPLAY_NAME, message)
 
     def _set_actions_enabled(self, enabled: bool) -> None:

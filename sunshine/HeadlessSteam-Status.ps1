@@ -12,6 +12,9 @@ $script:HeadlessSteamSunshineWebPort = 47990
 . (Join-Path $PSScriptRoot "HeadlessSteam-MoonlightSettings.ps1")
 . (Join-Path $PSScriptRoot "HeadlessSteam-MoonlightRuntime.ps1")
 . (Join-Path $PSScriptRoot "HeadlessSteam-Tailscale.ps1")
+. (Join-Path $PSScriptRoot "HeadlessSteam-VirtualDisplay.ps1")
+. (Join-Path $PSScriptRoot "HeadlessSteam-HostSettings.ps1")
+. (Join-Path $PSScriptRoot "HeadlessSteam-Display.ps1")
 
 function Get-HeadlessSteamLanIPv4 {
     foreach ($addr in (Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue)) {
@@ -272,6 +275,8 @@ function Get-HeadlessSteamStatus {
     }
     $sunshineUsername = Get-HeadlessSteamSunshineUsername
 
+    $hostFreeStatus = Get-HeadlessSteamHostFreeStatus -Quick:$Quick
+
     return [pscustomobject]@{
         SunshineRunning    = $sunshineRunning
         TailscaleRunning   = $tailscaleRunning
@@ -302,6 +307,13 @@ function Get-HeadlessSteamStatus {
         TailscaleHttpsOk = $tailscaleHttpsOk
         TailscaleFunnelRequirementsMet = $tailscaleFunnelRequirementsMet
         TailscaleFunnelDnsSetupUrl = $tailscaleFunnelDnsSetupUrl
+        HostFreeModeEnabled = [bool]$hostFreeStatus.HostFreeModeEnabled
+        VirtualDisplayInstalled = [bool]$hostFreeStatus.VirtualDisplayInstalled
+        VirtualDisplayActive = [bool]$hostFreeStatus.VirtualDisplayActive
+        StreamOutputConfigured = [bool]$hostFreeStatus.StreamOutputConfigured
+        HostFreeReady = [bool]$hostFreeStatus.HostFreeReady
+        HostFreeStatusMessage = [string]$hostFreeStatus.HostFreeStatusMessage
+        HostFreeRebootRequired = [bool]$hostFreeStatus.HostFreeRebootRequired
     }
 }
 
